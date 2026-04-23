@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Ledger Lens",
+    "slug": "ledger-lens",
+    "scheme": "ledgerlens",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 0
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.ledgerlens.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Capture receipt photos for expense tracking and QuickBooks sync.",
+        "NSPhotoLibraryUsageDescription": "Select receipt images from your photo library for processing.",
+        "NSPhotoLibraryAddUsageDescription": "Save receipt previews and exports when needed."
+      }
+    },
+    "android": {
+      "package": "com.ledgerlens.app",
+      "versionCode": 1,
+      "edgeToEdgeEnabled": true,
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
+    }
+  }
+}

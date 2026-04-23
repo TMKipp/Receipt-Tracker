@@ -1,0 +1,834 @@
+openapi: 3.1.0
+info:
+  title: Receipt Tracker API
+  version: 0.1.0
+  description: >
+    API contract for a mobile-first receipt tracking app with OCR normalization,
+    review, reporting, and outbound sync to QuickBooks Online and Microsoft Excel.
+servers:
+  - url: https://api.example.com/api/v1
+    description: Production
+  - url: http://localhost:8000/api/v1
+    description: Local development
+tags:
+  - name: health
+  - name: auth
+  - name: uploads
+  - name: receipts
+  - name: categories
+  - name: vendors
+  - name: integrations
+  - name: reports
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    receiptId:
+      name: receiptId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+    Pagination:
+      type: object
+      required: [limit, offset, total]
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+        total:
+          type: integer
+          minimum: 0
+    User:
+      type: object
+      required: [id, email, defaultCurrency, timezone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        fullName:
+          type: string
+          nullable: true
+        defaultCurrency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        timezone:
+          type: string
+    SessionExchangeRequest:
+      type: object
+      required: [provider, idToken]
+      properties:
+        provider:
+          type: string
+          enum: [google, apple, microsoft]
+        idToken:
+          type: string
+        deviceName:
+          type: string
+          nullable: true
+    SessionExchangeResponse:
+      type: object
+      required: [accessToken, refreshToken, expiresInSeconds, user]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresInSeconds:
+          type: integer
+        user:
+          $ref: '#/components/schemas/User'
+    PresignUploadRequest:
+      type: object
+      required: [filename, mimeType, sizeBytes]
+      properties:
+        filename:
+          type: string
+        mimeType:
+          type: string
+        sizeBytes:
+          type: integer
+          minimum: 1
+        sha256:
+          type: string
+          nullable: true
+    PresignUploadResponse:
+      type: object
+      required: [uploadUrl, objectKey, headers]
+      properties:
+        uploadUrl:
+          type: string
+          format: uri
+        objectKey:
+          type: string
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+    ReceiptLineItem:
+      type: object
+      required: [description]
+      properties:
+        description:
+          type: string
+        quantity:
+          type: number
+          nullable: true
+        unitPrice:
+          type: string
+          nullable: true
+        lineTotal:
+          type: string
+          nullable: true
+    ReceiptFile:
+      type: object
+      required: [objectKey, mimeType]
+      properties:
+        objectKey:
+          type: string
+        mimeType:
+          type: string
+        originalFilename:
+          type: string
+          nullable: true
+    ReceiptCreateRequest:
+      type: object
+      required: [file]
+      properties:
+        file:
+          $ref: '#/components/schemas/ReceiptFile'
+        source:
+          type: string
+          enum: [camera, upload, email, api]
+          default: camera
+        notes:
+          type: string
+          nullable: true
+    FieldConfidence:
+      type: object
+      additionalProperties:
+        type: number
+        minimum: 0
+        maximum: 1
+    Receipt:
+      type: object
+      required:
+        [id, status, source, currency, createdAt, updatedAt, syncTargets]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            [uploaded, processing, review_required, approved, syncing, synced, failed, archived]
+        source:
+          type: string
+          enum: [camera, upload, email, api]
+        merchantName:
+          type: string
+          nullable: true
+        transactionDate:
+          type: string
+          format: date
+          nullable: true
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        subtotal:
+          type: string
+          nullable: true
+        tax:
+          type: string
+          nullable: true
+        tip:
+          type: string
+          nullable: true
+        total:
+          type: string
+          nullable: true
+        paymentMethod:
+          type: string
+          nullable: true
+        categoryId:
+          type: string
+          format: uuid
+          nullable: true
+        categoryName:
+          type: string
+          nullable: true
+        lineItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceiptLineItem'
+        notes:
+          type: string
+          nullable: true
+        confidence:
+          $ref: '#/components/schemas/FieldConfidence'
+        syncTargets:
+          type: object
+          properties:
+            quickbooks:
+              type: string
+              enum: [not_connected, not_requested, queued, syncing, synced, failed]
+            excel:
+              type: string
+              enum: [not_connected, not_requested, queued, syncing, synced, failed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ReceiptListResponse:
+      type: object
+      required: [data, pagination]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Receipt'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+    ReceiptUpdateRequest:
+      type: object
+      properties:
+        merchantName:
+          type: string
+        transactionDate:
+          type: string
+          format: date
+        subtotal:
+          type: string
+        tax:
+          type: string
+        tip:
+          type: string
+        total:
+          type: string
+        paymentMethod:
+          type: string
+        categoryId:
+          type: string
+          format: uuid
+        lineItems:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReceiptLineItem'
+        notes:
+          type: string
+    ReceiptApprovalRequest:
+      type: object
+      properties:
+        approved:
+          type: boolean
+          default: true
+        syncAfterApproval:
+          type: array
+          items:
+            type: string
+            enum: [quickbooks, excel]
+    ReceiptSyncRequest:
+      type: object
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [quickbooks, excel]
+        forceResync:
+          type: boolean
+          default: false
+    Category:
+      type: object
+      required: [id, name, source, isActive]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        source:
+          type: string
+          enum: [system, user, quickbooks]
+        externalAccountId:
+          type: string
+          nullable: true
+        externalAccountType:
+          type: string
+          nullable: true
+        isActive:
+          type: boolean
+    Vendor:
+      type: object
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        normalizedName:
+          type: string
+        lastUsedCategoryId:
+          type: string
+          format: uuid
+          nullable: true
+    ConnectUrlRequest:
+      type: object
+      required: [redirectUri]
+      properties:
+        redirectUri:
+          type: string
+          format: uri
+    ConnectUrlResponse:
+      type: object
+      required: [authorizationUrl, state]
+      properties:
+        authorizationUrl:
+          type: string
+          format: uri
+        state:
+          type: string
+    OAuthCallbackRequest:
+      type: object
+      required: [code, state]
+      properties:
+        code:
+          type: string
+        state:
+          type: string
+        realmId:
+          type: string
+          nullable: true
+    IntegrationStatus:
+      type: object
+      required: [provider, status]
+      properties:
+        provider:
+          type: string
+          enum: [quickbooks, microsoft]
+        status:
+          type: string
+          enum: [not_connected, connected, expired, revoked, error]
+        connectedAt:
+          type: string
+          format: date-time
+          nullable: true
+        externalTenantName:
+          type: string
+          nullable: true
+        scopes:
+          type: array
+          items:
+            type: string
+    MonthlySpendBucket:
+      type: object
+      required: [month, currency, total]
+      properties:
+        month:
+          type: string
+          description: YYYY-MM
+        currency:
+          type: string
+        total:
+          type: string
+        categories:
+          type: array
+          items:
+            type: object
+            required: [categoryName, total]
+            properties:
+              categoryName:
+                type: string
+              total:
+                type: string
+    MonthlySpendResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MonthlySpendBucket'
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /auth/session/exchange:
+    post:
+      tags: [auth]
+      summary: Exchange an external identity token for an app session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionExchangeRequest'
+      responses:
+        '200':
+          description: Session issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionExchangeResponse'
+        '401':
+          description: Invalid external token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: Get the current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /uploads/receipts/presign:
+    post:
+      tags: [uploads]
+      summary: Create a presigned upload target for a receipt image
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignUploadRequest'
+      responses:
+        '200':
+          description: Upload target created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignUploadResponse'
+  /receipts:
+    post:
+      tags: [receipts]
+      summary: Create a receipt record after upload
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptCreateRequest'
+      responses:
+        '201':
+          description: Receipt created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+    get:
+      tags: [receipts]
+      summary: List receipts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: categoryId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Receipt page
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptListResponse'
+  /receipts/{receiptId}:
+    get:
+      tags: [receipts]
+      summary: Get a receipt
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/receiptId'
+      responses:
+        '200':
+          description: Receipt details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+        '404':
+          description: Receipt not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    patch:
+      tags: [receipts]
+      summary: Update approved or suggested receipt fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/receiptId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptUpdateRequest'
+      responses:
+        '200':
+          description: Receipt updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+  /receipts/{receiptId}/approve:
+    post:
+      tags: [receipts]
+      summary: Mark a receipt as reviewed and ready for sync
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/receiptId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptApprovalRequest'
+      responses:
+        '200':
+          description: Receipt approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Receipt'
+  /receipts/{receiptId}/retry-processing:
+    post:
+      tags: [receipts]
+      summary: Retry OCR and normalization for a failed receipt
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/receiptId'
+      responses:
+        '202':
+          description: Retry queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: queued
+  /receipts/{receiptId}/sync:
+    post:
+      tags: [receipts]
+      summary: Queue outbound sync jobs for a receipt
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/receiptId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptSyncRequest'
+      responses:
+        '202':
+          description: Sync queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: queued
+  /categories:
+    get:
+      tags: [categories]
+      summary: List categories available to the current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Category list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+  /vendors:
+    get:
+      tags: [vendors]
+      summary: List known vendors for the current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Vendor list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Vendor'
+  /integrations/quickbooks/connect-url:
+    post:
+      tags: [integrations]
+      summary: Create a QuickBooks authorization URL
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectUrlRequest'
+      responses:
+        '200':
+          description: Authorization URL created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectUrlResponse'
+  /integrations/quickbooks/callback:
+    post:
+      tags: [integrations]
+      summary: Exchange the QuickBooks auth code for encrypted tokens
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthCallbackRequest'
+      responses:
+        '200':
+          description: Integration connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationStatus'
+  /integrations/quickbooks/status:
+    get:
+      tags: [integrations]
+      summary: Get the current QuickBooks connection status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: QuickBooks status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationStatus'
+  /integrations/microsoft/connect-url:
+    post:
+      tags: [integrations]
+      summary: Create a Microsoft authorization URL
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConnectUrlRequest'
+      responses:
+        '200':
+          description: Authorization URL created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectUrlResponse'
+  /integrations/microsoft/callback:
+    post:
+      tags: [integrations]
+      summary: Exchange the Microsoft auth code for encrypted Graph tokens
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthCallbackRequest'
+      responses:
+        '200':
+          description: Integration connected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationStatus'
+  /integrations/microsoft/status:
+    get:
+      tags: [integrations]
+      summary: Get the current Microsoft connection status
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Microsoft status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationStatus'
+  /reports/monthly-spend:
+    get:
+      tags: [reports]
+      summary: Aggregate spend totals by month and category
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: fromMonth
+          in: query
+          schema:
+            type: string
+            example: 2026-01
+        - name: toMonth
+          in: query
+          schema:
+            type: string
+            example: 2026-12
+      responses:
+        '200':
+          description: Monthly spend data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonthlySpendResponse'
+

@@ -1,0 +1,17 @@
+.env
+.env.local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+node_modules/
+.expo/
+.next/
+dist/
+coverage/
+*.log
+*.err.log
+*.out.log
+.DS_Store
