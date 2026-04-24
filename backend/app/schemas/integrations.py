@@ -56,6 +56,10 @@ class MicrosoftWorkbookTableRead(APIModel):
     table_id: str
     table_name: str
     worksheet_name: str | None = None
+    columns: list[str] = Field(default_factory=list)
+    supported_columns: list[str] = Field(default_factory=list)
+    missing_recommended_columns: list[str] = Field(default_factory=list)
+    sync_ready: bool = False
 
 
 class MicrosoftWorkbookTableListResponse(APIModel):

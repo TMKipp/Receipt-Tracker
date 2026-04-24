@@ -64,6 +64,8 @@ QuickBooks and Excel are the commercial promise, so sync cannot feel magical or 
 - Store idempotency keys, request payloads, response payloads, attempt counts, and safe error messages.
 - Add token refresh, re-auth prompts, retry/backoff, and stale job reconciliation.
 
+Current progress: Excel table search now exposes supported column metadata, flags missing recommended columns before binding, and blocks tables with zero supported receipt columns. The remaining 10/10 work is table creation fallback, provider sandbox proof, and append reliability measurement.
+
 Exit gate: beta sync reliability hits 98% QuickBooks and 97% Excel with no duplicate accounting records.
 
 ### 5. Finish Commercial Operations

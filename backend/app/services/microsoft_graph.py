@@ -33,6 +33,35 @@ EXCEL_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 EXCEL_EXTENSIONS = (".xlsx", ".xlsm", ".xlsb", ".xls")
+EXCEL_SUPPORTED_COLUMN_LABELS = {
+    "receiptid": "Receipt ID",
+    "merchant": "Merchant",
+    "vendor": "Vendor",
+    "biller": "Biller",
+    "receiptnumber": "Receipt Number",
+    "date": "Date",
+    "receiptdate": "Receipt Date",
+    "transactiondate": "Transaction Date",
+    "currency": "Currency",
+    "category": "Category",
+    "subtotal": "Subtotal",
+    "tax": "Tax",
+    "tip": "Tip",
+    "total": "Total",
+    "amount": "Amount",
+    "amountdue": "Amount Due",
+    "paymentmethod": "Payment Method",
+    "notes": "Notes",
+    "status": "Status",
+    "approvedat": "Approved At",
+    "createdat": "Created At",
+}
+EXCEL_RECOMMENDED_COLUMN_GROUPS = {
+    "Vendor or Merchant": {"vendor", "merchant", "biller"},
+    "Date": {"date", "receiptdate", "transactiondate"},
+    "Total or Amount": {"total", "amount", "amountdue"},
+    "Category": {"category"},
+}
 
 
 def build_microsoft_authorization_url(state: str, redirect_uri: str | None) -> str:
@@ -212,10 +241,25 @@ def list_table_columns(
     binding: ExcelWorkbookBinding,
 ) -> list[str]:
     access_token = ensure_connection_access_token(db, connection)
+    return _list_table_column_names(
+        access_token=access_token,
+        drive_id=binding.drive_id,
+        item_id=binding.item_id,
+        table_id=binding.table_id,
+    )
+
+
+def _list_table_column_names(
+    *,
+    access_token: str,
+    drive_id: str,
+    item_id: str,
+    table_id: str,
+) -> list[str]:
     payload = _graph_request(
         "GET",
         access_token=access_token,
-        path=f"drives/{binding.drive_id}/items/{binding.item_id}/workbook/tables/{binding.table_id}/columns",
+        path=f"drives/{drive_id}/items/{item_id}/workbook/tables/{table_id}/columns",
     )
     columns = payload.get("value") or []
     names = [str(column.get("name") or "").strip() for column in columns if str(column.get("name") or "").strip()]
@@ -310,7 +354,7 @@ def list_workbook_tables(
     *,
     drive_id: str,
     item_id: str,
-) -> list[dict[str, str | None]]:
+) -> list[dict[str, object]]:
     access_token = ensure_connection_access_token(db, connection)
     payload = _graph_request(
         "GET",
@@ -333,11 +377,23 @@ def list_workbook_tables(
             continue
         worksheet = item.get("worksheet") if isinstance(item.get("worksheet"), dict) else {}
         worksheet_name = str(worksheet.get("name") or "").strip() or None
+        try:
+            columns = _list_table_column_names(
+                access_token=access_token,
+                drive_id=drive_id,
+                item_id=item_id,
+                table_id=table_id,
+            )
+        except ProviderError:
+            columns = []
+        compatibility = summarize_excel_columns(columns)
         tables.append(
             {
                 "table_id": table_id,
                 "table_name": table_name,
                 "worksheet_name": worksheet_name,
+                "columns": columns,
+                **compatibility,
             }
         )
 
@@ -350,6 +406,12 @@ def validate_workbook_binding(
     binding: ExcelWorkbookBinding,
 ) -> list[str]:
     columns = list_table_columns(db, connection, binding)
+    compatibility = summarize_excel_columns(columns)
+    if not compatibility["supported_columns"]:
+        raise ProviderError(
+            "excel_columns_unrecognized",
+            "The selected Excel table does not contain any supported receipt columns. Add columns such as Vendor, Date, Total, Category, Tax, or Notes.",
+        )
     binding.last_validated_at = datetime.now(UTC)
     db.flush()
     return columns
@@ -359,14 +421,33 @@ def _canonical_header(name: str) -> str:
     return "".join(ch for ch in name.lower() if ch.isalnum())
 
 
+def summarize_excel_columns(columns: list[str]) -> dict[str, object]:
+    canonical_columns = {_canonical_header(column): column for column in columns}
+    supported_columns = [
+        original_name for canonical, original_name in canonical_columns.items() if canonical in EXCEL_SUPPORTED_COLUMN_LABELS
+    ]
+    missing_recommended_columns = [
+        label
+        for label, aliases in EXCEL_RECOMMENDED_COLUMN_GROUPS.items()
+        if not any(alias in canonical_columns for alias in aliases)
+    ]
+    return {
+        "supported_columns": supported_columns,
+        "missing_recommended_columns": missing_recommended_columns,
+        "sync_ready": bool(supported_columns) and len(missing_recommended_columns) <= 2,
+    }
+
+
 def _column_value(receipt: Receipt, header: str) -> str:
     normalized = _canonical_header(header)
     values = {
         "receiptid": str(receipt.id),
         "merchant": receipt.merchant_name or "",
         "vendor": receipt.merchant_name or "",
+        "biller": receipt.merchant_name or "",
         "receiptnumber": receipt.receipt_number or "",
         "date": receipt.transaction_date.isoformat() if receipt.transaction_date else "",
+        "receiptdate": receipt.transaction_date.isoformat() if receipt.transaction_date else "",
         "transactiondate": receipt.transaction_date.isoformat() if receipt.transaction_date else "",
         "currency": receipt.currency,
         "category": receipt.category.name if receipt.category else "",
@@ -374,6 +455,8 @@ def _column_value(receipt: Receipt, header: str) -> str:
         "tax": str(receipt.tax_amount or ""),
         "tip": str(receipt.tip_amount or ""),
         "total": str(receipt.total_amount or ""),
+        "amount": str(receipt.total_amount or ""),
+        "amountdue": str(receipt.total_amount or ""),
         "paymentmethod": receipt.payment_method or "",
         "notes": receipt.notes or "",
         "status": receipt.status.value,

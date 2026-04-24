@@ -4821,6 +4821,56 @@ input {
   margin-top: 14px;
 }
 
+.app-column-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.app-column-chip-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(19, 33, 25, 0.08);
+  background: rgba(255, 255, 255, 0.64);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.app-excel-template-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(28, 107, 79, 0.14);
+  background:
+    linear-gradient(145deg, rgba(236, 247, 240, 0.76), rgba(255, 255, 255, 0.64)),
+    rgba(255, 255, 255, 0.62);
+}
+
+.app-excel-template-card strong {
+  display: block;
+  margin-top: 5px;
+}
+
+.app-excel-template-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.app-readiness-copy-good {
+  color: var(--accent) !important;
+}
+
+.app-readiness-copy-warn {
+  color: #8a5a1f !important;
+}
+
 .app-primary-actions a {
   display: inline-flex;
   align-items: center;

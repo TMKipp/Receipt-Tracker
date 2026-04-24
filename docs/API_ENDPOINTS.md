@@ -47,6 +47,15 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - `POST /integrations/sync-jobs/run`
 - `POST /integrations/worker/run`
 
+`GET /integrations/microsoft/workbook-tables` returns each table with column compatibility metadata:
+
+- `columns`: Graph-visible table headers.
+- `supported_columns`: headers the receipt sync can populate.
+- `missing_recommended_columns`: recommended groups still missing, such as Vendor, Date, Total, or Category.
+- `sync_ready`: whether the table is a strong candidate for live append.
+
+`PUT /billing/excel-workbook` now rejects tables with zero supported receipt columns so users do not pin a destination that later fails every Excel sync.
+
 ## Reporting
 
 - `GET /reports/monthly-spend`

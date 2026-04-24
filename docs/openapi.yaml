@@ -393,6 +393,73 @@ components:
           type: array
           items:
             type: string
+    MicrosoftWorkbookCandidate:
+      type: object
+      required: [driveId, itemId, name]
+      properties:
+        driveId:
+          type: string
+        itemId:
+          type: string
+        name:
+          type: string
+        webUrl:
+          type: string
+          nullable: true
+        path:
+          type: string
+          nullable: true
+        lastModifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        mimeType:
+          type: string
+          nullable: true
+    MicrosoftWorkbookSearchResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MicrosoftWorkbookCandidate'
+    MicrosoftWorkbookTable:
+      type: object
+      required: [tableId, tableName, columns, supportedColumns, missingRecommendedColumns, syncReady]
+      properties:
+        tableId:
+          type: string
+        tableName:
+          type: string
+        worksheetName:
+          type: string
+          nullable: true
+        columns:
+          type: array
+          items:
+            type: string
+        supportedColumns:
+          type: array
+          description: Table headers the receipt sync can populate.
+          items:
+            type: string
+        missingRecommendedColumns:
+          type: array
+          description: Recommended receipt column groups missing from the table.
+          items:
+            type: string
+        syncReady:
+          type: boolean
+          description: True when the table is a strong candidate for live receipt appends.
+    MicrosoftWorkbookTableListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/MicrosoftWorkbookTable'
     MonthlySpendBucket:
       type: object
       required: [month, currency, total]
@@ -807,6 +874,60 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IntegrationStatus'
+  /integrations/microsoft/workbooks:
+    get:
+      tags: [integrations]
+      summary: Search existing Excel workbooks the connected Microsoft user can access
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 25
+            default: 8
+      responses:
+        '200':
+          description: Matching Excel workbooks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MicrosoftWorkbookSearchResponse'
+        '409':
+          description: Microsoft must be connected first
+  /integrations/microsoft/workbook-tables:
+    get:
+      tags: [integrations]
+      summary: List workbook tables with receipt-column compatibility metadata
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: driveId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: itemId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Workbook tables and sync readiness metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MicrosoftWorkbookTableListResponse'
+        '409':
+          description: Microsoft must be connected first
   /reports/monthly-spend:
     get:
       tags: [reports]
@@ -831,4 +952,3 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MonthlySpendResponse'
-

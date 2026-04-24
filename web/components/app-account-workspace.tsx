@@ -28,6 +28,7 @@ const accountPanes: Array<{ id: AccountPane; label: string }> = [
   { id: "billing", label: "Billing" },
   { id: "automation", label: "Automation" },
 ];
+const excelTemplateColumns = ["Vendor", "Date", "Total", "Category", "Tax", "Payment Method", "Notes", "Receipt ID"];
 
 function parsePane(value: string | null): AccountPane {
   if (value === "billing" || value === "automation") {
@@ -57,6 +58,35 @@ function trimWorkbookPath(path: string | null) {
     return "OneDrive or SharePoint";
   }
   return path.replace(/^\/drives\/[^/]+\/root:/, "").replace(/^:/, "") || "Root folder";
+}
+
+function excelTableReadiness(table: MicrosoftWorkbookTable | null) {
+  if (!table) {
+    return {
+      label: "Waiting",
+      tone: "status-neutral",
+      detail: "Choose a table to preview its receipt-column compatibility.",
+    };
+  }
+  if (table.sync_ready) {
+    return {
+      label: "Ready",
+      tone: "status-good",
+      detail: `${table.supported_columns.length} supported columns detected.`,
+    };
+  }
+  if (table.supported_columns.length > 0) {
+    return {
+      label: "Partial",
+      tone: "status-warn",
+      detail: `Usable, but missing ${table.missing_recommended_columns.join(", ")}.`,
+    };
+  }
+  return {
+    label: "Needs columns",
+    tone: "status-bad",
+    detail: "Add supported columns before binding this table.",
+  };
 }
 
 export function AppAccountWorkspace() {
@@ -154,6 +184,8 @@ export function AppAccountWorkspace() {
   }, [autoApproveEnabled, microsoftConnected, quickbooksConnected, workbookBinding]);
 
   const selectedTable = tables.find((item) => item.table_id === selectedTableId) ?? null;
+  const selectedTableReadiness = excelTableReadiness(selectedTable);
+  const selectedTableCanBind = Boolean(selectedTable && selectedTable.supported_columns.length > 0);
 
   async function handleWorkbookSearch() {
     setIsSearching(true);
@@ -203,6 +235,14 @@ export function AppAccountWorkspace() {
   async function handleBindWorkbook() {
     if (!selectedWorkbook || !selectedTable) {
       pushToast("Choose a workbook and table", "Select the workbook first, then pick the table to bind.", "warn");
+      return;
+    }
+    if (!selectedTableCanBind) {
+      pushToast(
+        "Table needs receipt columns",
+        "Add a supported column such as Vendor, Date, Total, Category, Tax, or Notes before pinning this Excel table.",
+        "warn",
+      );
       return;
     }
 
@@ -363,6 +403,10 @@ export function AppAccountWorkspace() {
                     <span>Last action</span>
                     <strong>{selectedTable ? selectedTable.table_name : "Waiting for selection"}</strong>
                   </div>
+                  <div>
+                    <span>Table readiness</span>
+                    <strong>{selectedTableReadiness.label}</strong>
+                  </div>
                 </div>
 
                 <div className="app-table-list">
@@ -376,17 +420,52 @@ export function AppAccountWorkspace() {
                       <div className="app-selection-item-copy">
                         <strong>{table.table_name}</strong>
                         <small>{table.worksheet_name || "Worksheet name unavailable"}</small>
+                        <div className="app-column-chip-row">
+                          {(table.supported_columns.length ? table.supported_columns : ["No supported columns"]).slice(0, 5).map((column) => (
+                            <span key={column}>{column}</span>
+                          ))}
+                        </div>
                       </div>
                       <div className="app-selection-item-meta">
-                        <span>Table</span>
-                        <small>{table.table_id}</small>
+                        <span className={`status-pill ${excelTableReadiness(table).tone}`}>{excelTableReadiness(table).label}</span>
+                        <small>
+                          {table.columns.length} {table.columns.length === 1 ? "column" : "columns"}
+                        </small>
                       </div>
                     </button>
                   ))}
                 </div>
 
+                {selectedWorkbook && tables.length === 0 ? (
+                  <div className="app-inline-message app-inline-message-warn">
+                    <strong>No Excel tables found</strong>
+                    <p>
+                      Open the workbook in Excel, select the receipt columns, choose Insert &gt; Table, then search again.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="app-excel-template-card">
+                  <div>
+                    <span className="pane-label">Recommended columns</span>
+                    <strong>Use these headers for the cleanest live append.</strong>
+                  </div>
+                  <div className="app-column-chip-row">
+                    {excelTemplateColumns.map((column) => (
+                      <span key={column}>{column}</span>
+                    ))}
+                  </div>
+                  {selectedTable ? (
+                    <p className={selectedTable.sync_ready ? "app-readiness-copy-good" : "app-readiness-copy-warn"}>
+                      {selectedTableReadiness.detail}
+                    </p>
+                  ) : (
+                    <p>These map directly to the approved receipt payload and keep CSV export aligned with live Excel sync.</p>
+                  )}
+                </div>
+
                 <div className="app-primary-actions">
-                  <button type="button" onClick={handleBindWorkbook} disabled={!selectedWorkbook || !selectedTable || isBinding}>
+                  <button type="button" onClick={handleBindWorkbook} disabled={!selectedWorkbook || !selectedTableCanBind || isBinding}>
                     {isBinding ? "Saving..." : "Use this Excel table"}
                   </button>
                 </div>

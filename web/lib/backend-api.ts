@@ -191,6 +191,10 @@ export type MicrosoftWorkbookTable = {
   table_id: string;
   table_name: string;
   worksheet_name: string | null;
+  columns: string[];
+  supported_columns: string[];
+  missing_recommended_columns: string[];
+  sync_ready: boolean;
 };
 
 export type MicrosoftWorkbookTableListResponse = {
