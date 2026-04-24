@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
+const ciMode = args.has("--ci");
 
 function commandAvailable(command, versionArgs = ["--version"]) {
   if (command === "current-node") {
@@ -92,7 +93,7 @@ const checks = [
     checks: [
       commandCheck("Node.js", "current-node"),
       commandCheck("Python backend runtime", "python", ["--version"]),
-      commandCheck("Docker for Postgres/Redis workers", "docker", ["--version"]),
+      commandCheck("Docker for local Postgres/Redis stack", "docker", ["--version"], false),
       fileCheck("Web dependency lockfile", "web/package-lock.json"),
       fileCheck("Mobile dependency lockfile", "mobile/package-lock.json"),
     ],
@@ -100,9 +101,9 @@ const checks = [
   {
     category: "Provider Credentials",
     checks: [
-      envCheck("QuickBooks sandbox OAuth", ["QBO_CLIENT_ID", "QBO_CLIENT_SECRET", "QBO_REDIRECT_URI"]),
-      envCheck("Microsoft Graph OAuth", ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REDIRECT_URI"]),
-      envCheck("RevenueCat entitlement webhooks", ["REVENUECAT_WEBHOOK_AUTHORIZATION", "REVENUECAT_ENTITLEMENT_KEY"]),
+      envCheck("QuickBooks sandbox OAuth", ["QBO_CLIENT_ID", "QBO_CLIENT_SECRET", "QBO_REDIRECT_URI"], !ciMode),
+      envCheck("Microsoft Graph OAuth", ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REDIRECT_URI"], !ciMode),
+      envCheck("RevenueCat entitlement webhooks", ["REVENUECAT_WEBHOOK_AUTHORIZATION", "REVENUECAT_ENTITLEMENT_KEY"], !ciMode),
       envCheck("Supabase JWT verification", ["SUPABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_JWT_ISSUER"], false),
       envCheck("OCR and AI providers", ["AWS_REGION", "OPENAI_API_KEY"], false),
     ],
@@ -111,10 +112,13 @@ const checks = [
     category: "Product Contracts",
     checks: [
       fileCheck("Commercial MVP snapshot", "docs/COMMERCIAL_MVP.md"),
+      fileCheck("8/10 readiness plan", "docs/PRODUCT_8_OUT_OF_10_PLAN.md"),
       fileCheck("10/10 readiness plan", "docs/PRODUCT_10_OUT_OF_10_PLAN.md"),
+      fileCheck("Security audit notes", "docs/SECURITY_AUDIT_NOTES.md"),
       fileCheck("OpenAPI contract", "docs/openapi.yaml"),
       fileCheck("Mobile release checklist", "docs/MOBILE_RELEASE_CHECKLIST.md"),
       fileCheck("Golden receipt smoke script", "scripts/smoke-receipt-flow.mjs"),
+      fileCheck("CI quality-gates workflow", ".github/workflows/quality-gates.yml"),
     ],
   },
   {
@@ -125,6 +129,7 @@ const checks = [
       fileCheck("Worker runner", "backend/app/services/worker_runner.py"),
       fileCheck("Mobile offline queue", "mobile/lib/offline-queue.ts"),
       fileCheck("Mobile capture screen", "mobile/app/(tabs)/capture.tsx"),
+      fileCheck("Backend service tests", "backend/tests/test_receipts_service_logic.py"),
     ],
   },
 ];
@@ -156,6 +161,7 @@ if (args.has("--json")) {
     process.stdout.write("\n");
   }
   process.stdout.write("Run with --json for machine-readable output. Run with --strict to fail on blockers.\n");
+  process.stdout.write("Use --ci to downgrade provider credential checks to warnings for automation runs.\n");
 }
 
 if (args.has("--strict") && blockerCount > 0) {

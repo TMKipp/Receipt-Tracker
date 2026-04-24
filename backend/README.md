@@ -47,5 +47,5 @@ The backend will auto-create tables on startup when `APP_AUTO_CREATE_SCHEMA=true
 
 1. Wire the worker process into production hosting with `SYNC_RUN_INLINE=false` for long-running environments.
 2. Add provider sandbox tests for QuickBooks expense creation, receipt attachment, Excel table append, and token refresh.
-3. Add tests for duplicate detection, auto-approval eligibility, OAuth state validation, billing webhooks, and sync invalidation after edits.
+3. Expand backend tests from service-logic coverage into provider sandbox and DB-backed integration suites.
 4. Add observability around OCR failures, token refresh failures, and sync retry exhaustion.

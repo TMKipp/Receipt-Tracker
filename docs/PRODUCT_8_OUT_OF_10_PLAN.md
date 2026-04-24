@@ -30,7 +30,7 @@ Goal: one real receipt can move from phone photo to OCR, review, approval, Quick
 - Persist offline queue records on device with `queued offline`, `uploading`, `processing`, `review required`, `approved`, `synced`, and `failed` states.
 - Keep the web capture screen as the companion validation lane for upload, extraction, approve-and-sync, and sync job proof.
 - Add a smoke script that runs upload, processing polling, approval, sync request, and sync job retrieval.
-- Current progress: mobile capture now uses Expo camera/library selection, copies receipt images into app storage, persists queue records, and can call the backend upload, extraction, approve, and connected sync endpoints. Background retry scheduling is still required for full offline automation.
+- Current progress: mobile capture uses Expo camera/library selection, copies receipt images into app storage, persists queue records, and can call backend upload, extraction, approve, and connected sync endpoints. Offline queue retry runs on app resume, on interval, and manual retry.
 
 Exit criteria: five real receipts complete the loop in a local or staging environment with visible receipt and sync states.
 
@@ -76,6 +76,7 @@ Goal: every release proves the important paths before users do.
 - Add mobile E2E/device QA for capture, offline queue, reconnect, review, paywall, restore purchase, and app reinstall.
 - Add web E2E coverage for receipt search, export, integrations, billing, and failure recovery.
 - Add CI for backend tests, web build, mobile type checks, linting, and smoke script execution.
+- Current progress: backend service tests were added for receipt sync-state/idempotency logic, auto-approval policy evaluation, and billing auth/status helpers. CI quality gates now run web build, mobile type/dependency checks, backend pytest, and readiness checks on every push and pull request.
 
 Exit criteria: the release checklist can block a build before beta users see broken core flows.
 

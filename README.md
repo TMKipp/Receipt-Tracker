@@ -49,6 +49,15 @@ receipt-tracker-starter/
 4. Wire mobile capture to the real upload + receipt API path.
 5. Run beta hardening: tests, analytics, crash reporting, and store/subscription validation.
 
+## Quality Gates
+
+- `node scripts/launch-readiness-check.mjs --ci --strict` validates contract files, core implementations, lockfiles, and CI-safe readiness checks.
+- `cd web && npm run build` verifies the companion app production build.
+- `cd mobile && npx tsc --noEmit && npx expo-doctor` verifies mobile types and Expo dependency health.
+- `cd backend && pip install -e ".[dev]" && pytest tests` runs backend service logic tests.
+
+GitHub Actions runs these quality gates in `.github/workflows/quality-gates.yml` on `push` and `pull_request`.
+
 ## What Is Implemented Now
 
 - FastAPI app bootstrap with commercial user settings, Supabase-token verification hooks, RevenueCat webhook ingestion, workbook binding, support tickets, receipt processing status, and sync-job visibility
