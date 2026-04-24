@@ -117,8 +117,12 @@ const checks = [
       fileCheck("Security audit notes", "docs/SECURITY_AUDIT_NOTES.md"),
       fileCheck("OpenAPI contract", "docs/openapi.yaml"),
       fileCheck("Mobile release checklist", "docs/MOBILE_RELEASE_CHECKLIST.md"),
+      fileCheck("Device QA matrix", "docs/DEVICE_QA_MATRIX.md"),
+      fileCheck("Provider sandbox runbook", "docs/PROVIDER_SANDBOX_RUNBOOK.md"),
       fileCheck("Golden receipt smoke script", "scripts/smoke-receipt-flow.mjs"),
+      fileCheck("Provider benchmark script", "scripts/provider-sandbox-benchmark.mjs"),
       fileCheck("CI quality-gates workflow", ".github/workflows/quality-gates.yml"),
+      fileCheck("Provider benchmark workflow", ".github/workflows/provider-sandbox-benchmark.yml"),
     ],
   },
   {

@@ -42,6 +42,7 @@ Goal: QuickBooks and Excel are boring in the best way.
 - Store provider request/response payloads with idempotency keys and support-safe error messages.
 - Add token refresh workers and re-auth prompts for expired Microsoft and Intuit connections.
 - Improve Excel setup with workbook search, table selection, column validation, and a fallback CSV export path.
+- Current progress: provider benchmark automation now exists via `scripts/provider-sandbox-benchmark.mjs` with threshold enforcement for QuickBooks success, Excel success, and processing latency. Manual CI dispatch is available in `.github/workflows/provider-sandbox-benchmark.yml`.
 
 Exit criteria: beta QuickBooks sync success is at least 98%, Excel append success is at least 97%, and every failure has a retry or re-auth path.
 
@@ -88,6 +89,7 @@ Goal: the team can see where users get stuck and help them quickly.
 - Add Sentry or equivalent crash/error monitoring across backend, web, and mobile.
 - Add support ticket capture with receipt ID, sync job ID, provider target, and safe error context.
 - Create onboarding emails, support macros, privacy disclosures, and app-store launch assets.
+- Current progress: a device QA matrix and provider sandbox runbook now define measurable exit criteria for mobile and integration reliability before public launch.
 
 Exit criteria: beta feedback can be connected to product events, logs, and specific recovery instructions.
 

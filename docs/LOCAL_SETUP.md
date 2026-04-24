@@ -45,6 +45,18 @@ Optional approval + sync:
 node .\scripts\smoke-receipt-flow.mjs --file "C:\path\to\receipt.jpg" --approve --sync-targets quickbooks,excel
 ```
 
+Provider reliability benchmark:
+
+```powershell
+node .\scripts\provider-sandbox-benchmark.mjs --files "C:\path\to\receipt1.jpg,C:\path\to\receipt2.jpg" --iterations 2 --strict
+```
+
+Quick local fixture run:
+
+```powershell
+node .\scripts\provider-sandbox-benchmark.mjs --files ".\scripts\fixtures\provider-smoke-receipt.txt" --sync-targets quickbooks,excel
+```
+
 ## 4. Run the worker loop
 
 The local stack already starts the worker. You can also run a one-off worker cycle for support/debugging:

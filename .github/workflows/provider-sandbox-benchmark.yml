@@ -1,0 +1,55 @@
+name: Provider Sandbox Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: "Backend API base URL (e.g. https://staging.example.com/api/v1)"
+        required: true
+        default: "http://localhost:8000/api/v1"
+      demo_email:
+        description: "Demo user email header"
+        required: true
+        default: "demo@example.com"
+      demo_name:
+        description: "Demo user name header"
+        required: true
+        default: "Demo User"
+      sync_targets:
+        description: "Comma-separated sync targets (quickbooks,excel)"
+        required: true
+        default: "quickbooks,excel"
+      strict:
+        description: "Fail the workflow when thresholds are not met"
+        required: true
+        default: "true"
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run provider benchmark
+        shell: bash
+        run: |
+          STRICT_ARG=""
+          if [ "${{ github.event.inputs.strict }}" = "true" ]; then
+            STRICT_ARG="--strict"
+          fi
+
+          node ./scripts/provider-sandbox-benchmark.mjs \
+            --backend "${{ github.event.inputs.backend_url }}" \
+            --email "${{ github.event.inputs.demo_email }}" \
+            --name "${{ github.event.inputs.demo_name }}" \
+            --files "./scripts/fixtures/provider-smoke-receipt.txt" \
+            --sync-targets "${{ github.event.inputs.sync_targets }}" \
+            --iterations 1 \
+            ${STRICT_ARG} > provider-benchmark-report.json
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-benchmark-report
+          path: provider-benchmark-report.json

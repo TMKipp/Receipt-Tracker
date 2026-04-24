@@ -85,4 +85,6 @@ GitHub Actions runs these quality gates in `.github/workflows/quality-gates.yml`
 - [Microsoft Graph Excel add rows](https://learn.microsoft.com/en-us/graph/api/tablerowcollection-add?view=graph-rest-1.0)
 - [Microsoft Graph write patterns for Excel](https://learn.microsoft.com/en-us/graph/excel-write-to-workbook)
 - [Local setup runbook](./docs/LOCAL_SETUP.md)
+- [Provider sandbox runbook](./docs/PROVIDER_SANDBOX_RUNBOOK.md)
 - [Mobile release checklist](./docs/MOBILE_RELEASE_CHECKLIST.md)
+- [Device QA matrix](./docs/DEVICE_QA_MATRIX.md)

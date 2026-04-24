@@ -1,0 +1,7 @@
+Receipt Tracker provider smoke fixture
+Vendor: Local Benchmark Merchant
+Date: 2026-04-24
+Subtotal: 42.00
+Tax: 3.36
+Total: 45.36
+Notes: This fixture validates upload, processing, approval, and downstream sync behavior.
