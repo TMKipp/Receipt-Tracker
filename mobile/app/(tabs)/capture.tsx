@@ -12,13 +12,20 @@ import {
   getIntegrationHealth,
   uploadCapturedReceipt,
 } from "@/lib/backend-api";
-import { queueItems } from "@/lib/mock-data";
-import { queueStateMeta } from "@/lib/offline-queue";
+import {
+  type OfflineQueueRecord,
+  type OfflineQueueState,
+  createOfflineQueueRecord,
+  listOfflineQueueRecords,
+  queueRecordDetail,
+  queueStateMeta,
+  updateOfflineQueueRecord,
+} from "@/lib/offline-queue";
 import { palette } from "@/lib/theme";
 
 const defaultIdentity = getDefaultMobileIdentity();
 
-function queueTone(state: string): "accent" | "warm" | "neutral" | "danger" {
+function queueTone(state: OfflineQueueState): "accent" | "warm" | "neutral" | "danger" {
   switch (state) {
     case "queued_offline":
       return "warm";
@@ -34,7 +41,7 @@ function queueTone(state: string): "accent" | "warm" | "neutral" | "danger" {
   }
 }
 
-function receiptStatusToQueueState(status: string): string {
+function receiptStatusToQueueState(status: string): OfflineQueueState {
   switch (status) {
     case "review_required":
       return "review_required";
@@ -44,6 +51,8 @@ function receiptStatusToQueueState(status: string): string {
       return "synced";
     case "failed":
       return "failed";
+    case "syncing":
+      return "approved";
     case "processing":
       return "processing";
     default:
@@ -69,11 +78,18 @@ export default function CaptureScreen() {
   const identity = defaultIdentity;
   const [asset, setAsset] = useState<CapturedReceiptAsset | null>(null);
   const [receipt, setReceipt] = useState<ApiReceipt | null>(null);
+  const [queueRecords, setQueueRecords] = useState<OfflineQueueRecord[]>([]);
+  const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
-  const [queueState, setQueueState] = useState("queued_offline");
+  const [queueState, setQueueState] = useState<OfflineQueueState>("queued_offline");
   const [statusMessage, setStatusMessage] = useState("Take a photo or choose one from your library.");
   const [readyTargets, setReadyTargets] = useState<Array<"quickbooks" | "excel">>([]);
   const [isBusy, setIsBusy] = useState(false);
+  const queuedCount = queueRecords.filter((record) => record.state === "queued_offline").length;
+  const activeCount = queueRecords.filter(
+    (record) => record.state === "uploading" || record.state === "processing",
+  ).length;
+  const failedCount = queueRecords.filter((record) => record.state === "failed").length;
 
   useEffect(() => {
     let isCancelled = false;
@@ -102,6 +118,72 @@ export default function CaptureScreen() {
     };
   }, [identity]);
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadQueue() {
+      const records = await listOfflineQueueRecords();
+      if (isCancelled) {
+        return;
+      }
+
+      setQueueRecords(records);
+      if (records[0]) {
+        openQueueRecord(records[0]);
+      }
+    }
+
+    void loadQueue();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  function openQueueRecord(record: OfflineQueueRecord) {
+    setActiveQueueId(record.id);
+    setAsset(record.asset);
+    setNotes(record.notes);
+    setReceipt(null);
+    setQueueState(record.state);
+    setStatusMessage(queueRecordDetail(record));
+  }
+
+  async function refreshQueue(activeRecordId = activeQueueId) {
+    const records = await listOfflineQueueRecords();
+    setQueueRecords(records);
+    const activeRecord = records.find((record) => record.id === activeRecordId);
+    if (activeRecord) {
+      setQueueState(activeRecord.state);
+      setStatusMessage(queueRecordDetail(activeRecord));
+    }
+  }
+
+  async function patchActiveQueue(
+    recordId: string,
+    patch: Partial<Omit<OfflineQueueRecord, "id" | "createdAt">>,
+  ) {
+    const updated = await updateOfflineQueueRecord(recordId, patch);
+    await refreshQueue(recordId);
+    if (updated) {
+      setQueueState(updated.state);
+      setStatusMessage(queueRecordDetail(updated));
+    }
+    return updated;
+  }
+
+  function handleNotesChange(nextNotes: string) {
+    setNotes(nextNotes);
+    if (!activeQueueId) {
+      return;
+    }
+
+    setQueueRecords((records) =>
+      records.map((record) => (record.id === activeQueueId ? { ...record, notes: nextNotes } : record)),
+    );
+    void updateOfflineQueueRecord(activeQueueId, { notes: nextNotes });
+  }
+
   async function pickReceipt(source: "camera" | "library") {
     if (source === "camera") {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -129,16 +211,22 @@ export default function CaptureScreen() {
       return;
     }
 
-    const nextAsset = result.assets[0];
-    setAsset({
-      uri: nextAsset.uri,
-      fileName: nextAsset.fileName,
-      mimeType: nextAsset.mimeType,
-      fileSize: nextAsset.fileSize,
-    });
+    const pickedAsset = result.assets[0];
+    const nextAsset: CapturedReceiptAsset = {
+      uri: pickedAsset.uri,
+      fileName: pickedAsset.fileName,
+      mimeType: pickedAsset.mimeType,
+      fileSize: pickedAsset.fileSize,
+    };
+    const queueRecord = await createOfflineQueueRecord(nextAsset, notes);
+    const records = await listOfflineQueueRecords();
+
+    setQueueRecords(records);
+    setActiveQueueId(queueRecord.id);
+    setAsset(queueRecord.asset);
     setReceipt(null);
-    setQueueState("queued_offline");
-    setStatusMessage("Receipt is staged locally. Upload when the connection is stable.");
+    setQueueState(queueRecord.state);
+    setStatusMessage("Receipt is saved on this device. Upload when the connection is stable.");
   }
 
   async function uploadSelectedReceipt() {
@@ -148,14 +236,35 @@ export default function CaptureScreen() {
     }
 
     setIsBusy(true);
-    setQueueState("uploading");
+
+    let queueId = activeQueueId;
+    let uploadAsset = asset;
+    if (!queueId) {
+      const queueRecord = await createOfflineQueueRecord(asset, notes);
+      queueId = queueRecord.id;
+      uploadAsset = queueRecord.asset;
+      setActiveQueueId(queueId);
+      setAsset(queueRecord.asset);
+    }
+
+    await patchActiveQueue(queueId, {
+      state: "uploading",
+      notes,
+      lastError: null,
+    });
     setStatusMessage("Uploading the receipt image to protected storage...");
 
     try {
-      setQueueState("processing");
-      const uploadedReceipt = await uploadCapturedReceipt(identity, asset, notes);
+      await patchActiveQueue(queueId, { state: "processing" });
+      const uploadedReceipt = await uploadCapturedReceipt(identity, uploadAsset, notes);
+      const nextState = receiptStatusToQueueState(uploadedReceipt.status);
       setReceipt(uploadedReceipt);
-      setQueueState(receiptStatusToQueueState(uploadedReceipt.status));
+      await patchActiveQueue(queueId, {
+        state: nextState,
+        receiptId: uploadedReceipt.id,
+        label: uploadedReceipt.merchant_name || "Receipt ready for review",
+        lastError: uploadedReceipt.processing_error,
+      });
       setStatusMessage(
         uploadedReceipt.status === "failed"
           ? uploadedReceipt.processing_error || "Receipt processing failed."
@@ -163,7 +272,11 @@ export default function CaptureScreen() {
       );
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Upload failed.";
-      setQueueState(detail.toLowerCase().includes("network") ? "queued_offline" : "failed");
+      const nextState = detail.toLowerCase().includes("network") ? "queued_offline" : "failed";
+      await patchActiveQueue(queueId, {
+        state: nextState,
+        lastError: detail,
+      });
       setStatusMessage(detail);
     } finally {
       setIsBusy(false);
@@ -176,7 +289,10 @@ export default function CaptureScreen() {
     }
 
     setIsBusy(true);
-    setQueueState("approved");
+    const queueId = activeQueueId;
+    if (queueId) {
+      await patchActiveQueue(queueId, { state: "approved", lastError: null });
+    }
     setStatusMessage(
       readyTargets.length ? "Approving and queueing connected sync targets..." : "Approving receipt locally...",
     );
@@ -184,15 +300,30 @@ export default function CaptureScreen() {
     try {
       const approved = await approveReceipt(identity, receipt.id, readyTargets);
       setReceipt(approved);
-      setQueueState(receiptStatusToQueueState(approved.status));
+      const nextState = receiptStatusToQueueState(approved.status);
+      if (queueId) {
+        await patchActiveQueue(queueId, {
+          state: nextState,
+          receiptId: approved.id,
+          label: approved.merchant_name || "Approved receipt",
+          lastError: approved.processing_error,
+        });
+      } else {
+        setQueueState(nextState);
+      }
       setStatusMessage(
         readyTargets.length
           ? "Approved and queued for connected accounting systems."
           : "Approved. Connect QuickBooks or Excel to sync.",
       );
     } catch (error) {
-      setQueueState("failed");
-      setStatusMessage(error instanceof Error ? error.message : "Approval failed.");
+      const detail = error instanceof Error ? error.message : "Approval failed.";
+      if (queueId) {
+        await patchActiveQueue(queueId, { state: "failed", lastError: detail });
+      } else {
+        setQueueState("failed");
+      }
+      setStatusMessage(detail);
     } finally {
       setIsBusy(false);
     }
@@ -237,7 +368,7 @@ export default function CaptureScreen() {
         <TextInput
           style={styles.notesInput}
           value={notes}
-          onChangeText={setNotes}
+          onChangeText={handleNotesChange}
           placeholder="Add a business note before upload"
           placeholderTextColor={palette.muted}
         />
@@ -282,16 +413,16 @@ export default function CaptureScreen() {
 
       <View style={styles.healthStrip}>
         <View style={styles.healthCell}>
-          <Text style={styles.healthValue}>3</Text>
+          <Text style={styles.healthValue}>{queuedCount}</Text>
           <Text style={styles.healthLabel}>Queued offline</Text>
         </View>
         <View style={styles.healthCell}>
-          <Text style={styles.healthValue}>1</Text>
-          <Text style={styles.healthLabel}>Uploading now</Text>
+          <Text style={styles.healthValue}>{activeCount}</Text>
+          <Text style={styles.healthLabel}>Uploading or processing</Text>
         </View>
         <View style={styles.healthCell}>
-          <Text style={styles.healthValue}>98%</Text>
-          <Text style={styles.healthLabel}>Sync retry success</Text>
+          <Text style={styles.healthValue}>{failedCount}</Text>
+          <Text style={styles.healthLabel}>Need attention</Text>
         </View>
       </View>
 
@@ -301,14 +432,24 @@ export default function CaptureScreen() {
       </View>
 
       <View style={styles.queueList}>
-        {queueItems.map((item) => (
-          <View key={item.id} style={styles.queueRow}>
+        {queueRecords.length === 0 ? (
+          <View style={styles.queueEmpty}>
+            <Text style={styles.queueLabel}>No receipts queued yet</Text>
+            <Text style={styles.queueDetail}>Captured receipts will appear here and survive app restarts.</Text>
+          </View>
+        ) : null}
+        {queueRecords.map((item) => (
+          <Pressable
+            key={item.id}
+            style={[styles.queueRow, item.id === activeQueueId && styles.queueRowActive]}
+            onPress={() => openQueueRecord(item)}
+          >
             <View style={styles.queueTop}>
               <Text style={styles.queueLabel}>{item.label}</Text>
               <StatusPill label={queueStateMeta[item.state].label} tone={queueTone(item.state)} />
             </View>
-            <Text style={styles.queueDetail}>{queueStateMeta[item.state].detail}</Text>
-          </View>
+            <Text style={styles.queueDetail}>{queueRecordDetail(item)}</Text>
+          </Pressable>
         ))}
       </View>
     </ScreenFrame>
@@ -561,6 +702,19 @@ const styles = StyleSheet.create({
   queueRow: {
     gap: 10,
     paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: palette.line,
+  },
+  queueRowActive: {
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.surfaceSoft,
+  },
+  queueEmpty: {
+    gap: 8,
+    paddingVertical: 18,
     borderTopWidth: 1,
     borderTopColor: palette.line,
   },

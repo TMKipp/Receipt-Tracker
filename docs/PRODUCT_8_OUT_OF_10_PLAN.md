@@ -30,7 +30,7 @@ Goal: one real receipt can move from phone photo to OCR, review, approval, Quick
 - Persist offline queue records on device with `queued offline`, `uploading`, `processing`, `review required`, `approved`, `synced`, and `failed` states.
 - Keep the web capture screen as the companion validation lane for upload, extraction, approve-and-sync, and sync job proof.
 - Add a smoke script that runs upload, processing polling, approval, sync request, and sync job retrieval.
-- Current progress: mobile capture now uses Expo camera/library selection and can call the backend upload, extraction, approve, and connected sync endpoints. Persistent on-device queue storage is still required for true offline survival.
+- Current progress: mobile capture now uses Expo camera/library selection, copies receipt images into app storage, persists queue records, and can call the backend upload, extraction, approve, and connected sync endpoints. Background retry scheduling is still required for full offline automation.
 
 Exit criteria: five real receipts complete the loop in a local or staging environment with visible receipt and sync states.
 

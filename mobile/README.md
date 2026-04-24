@@ -10,7 +10,8 @@ This is the dedicated Expo React Native app for the commercial MVP.
 - billing screen for trial and subscription messaging
 - camera and library receipt capture with crop/compression settings
 - backend upload, extraction, approval, and connected sync handoff from the capture screen
-- offline capture queue states for queued, uploading, processing, review, approved, synced, and failed receipts
+- persistent offline capture queue records backed by app storage and copied receipt images
+- queue states for queued, uploading, processing, review, approved, synced, and failed receipts
 
 ## Product focus
 
@@ -36,7 +37,7 @@ This app is designed to ship to both iOS and Android through Expo + EAS.
 ## Before store submission
 
 1. Install mobile dependencies and run the Expo app on a real iPhone and Android device.
-2. Wire Supabase auth, RevenueCat, persistent offline queue storage, and production API credentials.
+2. Wire Supabase auth, RevenueCat, background retry scheduling, and production API credentials.
 3. Add production app icons, splash assets, and store screenshots.
 4. Create the Apple App Store and Google Play listings, privacy disclosures, and subscription metadata.
 5. Build with EAS and validate sandbox purchases plus camera/upload flows on devices.
