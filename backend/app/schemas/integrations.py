@@ -36,3 +36,27 @@ class IntegrationHealthResponse(APIModel):
     microsoft: IntegrationStatusRead
     workbook_binding: WorkbookBindingRead | None = None
     sync_ready_targets: list[str] = Field(default_factory=list)
+
+
+class MicrosoftWorkbookCandidateRead(APIModel):
+    drive_id: str
+    item_id: str
+    name: str
+    web_url: str | None = None
+    path: str | None = None
+    last_modified_at: datetime | None = None
+    mime_type: str | None = None
+
+
+class MicrosoftWorkbookSearchResponse(APIModel):
+    data: list[MicrosoftWorkbookCandidateRead] = Field(default_factory=list)
+
+
+class MicrosoftWorkbookTableRead(APIModel):
+    table_id: str
+    table_name: str
+    worksheet_name: str | None = None
+
+
+class MicrosoftWorkbookTableListResponse(APIModel):
+    data: list[MicrosoftWorkbookTableRead] = Field(default_factory=list)

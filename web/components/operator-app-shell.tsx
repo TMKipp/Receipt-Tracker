@@ -140,7 +140,7 @@ export function OperatorAppShell({ title, description, children, meta }: Operato
 
   return (
     <div className="operator-app-page">
-      <div className="operator-app-shell">
+      <div className="operator-app-shell operator-app-shell-simple">
         <aside className="operator-app-rail">
           <div className="operator-app-brand-row">
             <div className="operator-app-brand-mark">LL</div>
@@ -166,18 +166,10 @@ export function OperatorAppShell({ title, description, children, meta }: Operato
             })}
           </nav>
 
-          <div className="operator-app-guide">
-            <span className="pane-label">How to use this screen</span>
+          <div className="operator-app-focus">
+            <span className="pane-label">Today</span>
             <strong>{activeProfile.label}</strong>
             <p>{activeProfile.guidance}</p>
-            <div className="operator-app-guide-steps">
-              {activeProfile.steps.map((step, index) => (
-                <div key={step}>
-                  <span>{index + 1}</span>
-                  <p>{step}</p>
-                </div>
-              ))}
-            </div>
           </div>
 
           <div className="operator-app-rail-footer">
@@ -187,23 +179,7 @@ export function OperatorAppShell({ title, description, children, meta }: Operato
         </aside>
 
         <div className="operator-app-main">
-          <div className="operator-app-utility-bar">
-            <div className="operator-app-utility-group">
-              <span className="operator-live-dot" aria-hidden="true" />
-              <div>
-                <strong>Current task: {activeProfile.label}</strong>
-                <small>{activeProfile.guidance}</small>
-              </div>
-            </div>
-            <div className="operator-app-utility-actions">
-              <button type="button" onClick={() => setCommandOpen(true)}>
-                Cmd/Ctrl + K
-              </button>
-              <span>{activeItem.label}</span>
-            </div>
-          </div>
-
-          <header className="operator-app-header">
+          <header className="operator-app-header operator-app-header-simple">
             <div className="operator-app-heading">
               <p className="pane-label">Ledger Lens app</p>
               <h1>{title}</h1>
@@ -211,13 +187,15 @@ export function OperatorAppShell({ title, description, children, meta }: Operato
             </div>
 
             <div className="operator-app-header-actions">
+              <button type="button" className="operator-app-command-trigger" onClick={() => setCommandOpen(true)}>
+                Search
+              </button>
               <span className="status-pill status-good">Trial active</span>
-              <span className="status-pill status-neutral">QuickBooks + Excel ready</span>
               <Link href="/app/capture">Upload receipt</Link>
             </div>
           </header>
 
-          {meta ? <div className="operator-app-meta">{meta}</div> : null}
+          {meta ? <div className="operator-app-meta operator-app-meta-simple">{meta}</div> : null}
 
           <main className="operator-app-content">{children}</main>
         </div>

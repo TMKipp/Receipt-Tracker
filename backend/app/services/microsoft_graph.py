@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 import uuid
+from urllib.parse import quote
 from urllib.parse import urlencode
 
 import httpx
@@ -25,6 +26,13 @@ from app.services.integration_oauth import (
 from app.services.provider_errors import ProviderError
 
 MS_SCOPE = "offline_access Files.ReadWrite.All User.Read"
+EXCEL_MIME_TYPES = {
+    "application/vnd.ms-excel",
+    "application/vnd.ms-excel.sheet.macroenabled.12",
+    "application/vnd.ms-excel.sheet.binary.macroenabled.12",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+EXCEL_EXTENSIONS = (".xlsx", ".xlsm", ".xlsb", ".xls")
 
 
 def build_microsoft_authorization_url(state: str, redirect_uri: str | None) -> str:
@@ -217,6 +225,123 @@ def list_table_columns(
             "The selected Excel table does not expose any column headers through Microsoft Graph.",
         )
     return names
+
+
+def _normalize_drive_item(item: dict) -> dict | None:
+    candidate = item.get("remoteItem") if isinstance(item.get("remoteItem"), dict) else item
+    if not isinstance(candidate, dict):
+        return None
+
+    file_payload = candidate.get("file") if isinstance(candidate.get("file"), dict) else item.get("file")
+    if not isinstance(file_payload, dict):
+        return None
+
+    name = str(candidate.get("name") or item.get("name") or "").strip()
+    if not name:
+        return None
+
+    mime_type = str(file_payload.get("mimeType") or "").strip() or None
+    lower_name = name.lower()
+    if mime_type not in EXCEL_MIME_TYPES and not lower_name.endswith(EXCEL_EXTENSIONS):
+        return None
+
+    parent_reference = candidate.get("parentReference")
+    if not isinstance(parent_reference, dict):
+        parent_reference = item.get("parentReference")
+    if not isinstance(parent_reference, dict):
+        parent_reference = {}
+
+    drive_id = str(parent_reference.get("driveId") or "").strip()
+    item_id = str(candidate.get("id") or item.get("id") or "").strip()
+    if not drive_id or not item_id:
+        return None
+
+    return {
+        "drive_id": drive_id,
+        "item_id": item_id,
+        "name": name,
+        "web_url": str(candidate.get("webUrl") or item.get("webUrl") or "").strip() or None,
+        "path": str(parent_reference.get("path") or "").strip() or None,
+        "last_modified_at": candidate.get("lastModifiedDateTime") or item.get("lastModifiedDateTime"),
+        "mime_type": mime_type,
+    }
+
+
+def search_excel_workbooks(
+    db: Session,
+    connection: IntegrationConnection,
+    *,
+    query: str | None,
+    limit: int = 8,
+) -> list[dict[str, object]]:
+    access_token = ensure_connection_access_token(db, connection)
+    query_text = (query or "").strip() or "xlsx"
+    encoded_query = quote(query_text, safe="")
+    payload = _graph_request(
+        "GET",
+        access_token=access_token,
+        path=f"me/drive/search(q='{encoded_query}')",
+        params={
+            "$top": str(limit),
+            "$select": "id,name,webUrl,lastModifiedDateTime,parentReference,file,remoteItem",
+        },
+    )
+
+    normalized: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in payload.get("value") or []:
+        if not isinstance(item, dict):
+            continue
+        workbook = _normalize_drive_item(item)
+        if workbook is None:
+            continue
+        key = (str(workbook["drive_id"]), str(workbook["item_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(workbook)
+
+    return normalized
+
+
+def list_workbook_tables(
+    db: Session,
+    connection: IntegrationConnection,
+    *,
+    drive_id: str,
+    item_id: str,
+) -> list[dict[str, str | None]]:
+    access_token = ensure_connection_access_token(db, connection)
+    payload = _graph_request(
+        "GET",
+        access_token=access_token,
+        path=f"drives/{drive_id}/items/{item_id}/workbook/tables",
+        params={
+            "$top": "50",
+            "$expand": "worksheet($select=id,name)",
+            "$select": "id,name",
+        },
+    )
+
+    tables: list[dict[str, str | None]] = []
+    for item in payload.get("value") or []:
+        if not isinstance(item, dict):
+            continue
+        table_id = str(item.get("id") or "").strip()
+        table_name = str(item.get("name") or "").strip()
+        if not table_id or not table_name:
+            continue
+        worksheet = item.get("worksheet") if isinstance(item.get("worksheet"), dict) else {}
+        worksheet_name = str(worksheet.get("name") or "").strip() or None
+        tables.append(
+            {
+                "table_id": table_id,
+                "table_name": table_name,
+                "worksheet_name": worksheet_name,
+            }
+        )
+
+    return tables
 
 
 def validate_workbook_binding(

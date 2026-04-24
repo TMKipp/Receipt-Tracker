@@ -132,6 +132,62 @@ export type BillingSnapshotResponse = {
   workbook_binding: IntegrationHealthResponse["workbook_binding"];
 };
 
+export type PresignUploadResponse = {
+  upload_url: string;
+  object_key: string;
+  headers: Record<string, string>;
+};
+
+export type ReceiptProcessingStatusResponse = {
+  receipt_id: string;
+  status: string;
+  processed_at: string | null;
+  approved_at: string | null;
+  auto_approved_at: string | null;
+  processing_error: string | null;
+  decision: {
+    decision_summary: string[];
+    duplicate_of_receipt_id: string | null;
+    auto_approved: boolean;
+    needs_review: boolean;
+  };
+  overall_confidence: string | null;
+};
+
+export type MicrosoftWorkbookCandidate = {
+  drive_id: string;
+  item_id: string;
+  name: string;
+  web_url: string | null;
+  path: string | null;
+  last_modified_at: string | null;
+  mime_type: string | null;
+};
+
+export type MicrosoftWorkbookSearchResponse = {
+  data: MicrosoftWorkbookCandidate[];
+};
+
+export type MicrosoftWorkbookTable = {
+  table_id: string;
+  table_name: string;
+  worksheet_name: string | null;
+};
+
+export type MicrosoftWorkbookTableListResponse = {
+  data: MicrosoftWorkbookTable[];
+};
+
+export type WorkbookBindingResponse = {
+  drive_id: string;
+  item_id: string;
+  table_id: string;
+  workbook_name: string | null;
+  worksheet_name: string | null;
+  table_name: string | null;
+  last_validated_at: string | null;
+};
+
 export type DemoIdentity = {
   backendUrl: string;
   demoEmail: string;
@@ -180,6 +236,18 @@ function jsonOptions(identity: DemoIdentity, method: string, body?: unknown): Re
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   };
+}
+
+function urlWithParams(base: string, params: Record<string, string | number | undefined | null>) {
+  const next = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    next.set(key, String(value));
+  }
+  const query = next.toString();
+  return query ? `${base}?${query}` : base;
 }
 
 export async function listReceipts(
@@ -260,4 +328,124 @@ export async function getBillingSnapshot(identity: DemoIdentity) {
   return requestJson<BillingSnapshotResponse>(url, {
     headers: demoHeaders(identity),
   });
+}
+
+export async function presignReceiptUpload(
+  identity: DemoIdentity,
+  payload: {
+    filename: string;
+    mimeType: string;
+    sizeBytes: number;
+    sha256?: string | null;
+  },
+) {
+  const url = `${normalizedBaseUrl(identity.backendUrl)}/uploads/receipts/presign`;
+  return requestJson<PresignUploadResponse>(
+    url,
+    jsonOptions(identity, "POST", {
+      filename: payload.filename,
+      mime_type: payload.mimeType,
+      size_bytes: payload.sizeBytes,
+      sha256: payload.sha256 ?? undefined,
+    }),
+  );
+}
+
+export async function uploadReceiptBinary(uploadUrl: string, file: Blob, headers: Record<string, string>) {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers,
+    body: file,
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
+export async function createReceiptRecord(
+  identity: DemoIdentity,
+  payload: {
+    objectKey: string;
+    mimeType: string;
+    originalFilename: string;
+    notes?: string;
+    source?: "camera" | "upload" | "email" | "api";
+  },
+) {
+  const url = `${normalizedBaseUrl(identity.backendUrl)}/receipts`;
+  return requestJson<ApiReceipt>(
+    url,
+    jsonOptions(identity, "POST", {
+      file: {
+        object_key: payload.objectKey,
+        mime_type: payload.mimeType,
+        original_filename: payload.originalFilename,
+      },
+      source: payload.source ?? "upload",
+      notes: payload.notes || undefined,
+    }),
+  );
+}
+
+export async function completeReceiptUpload(
+  identity: DemoIdentity,
+  receiptId: string,
+  payload: {
+    fileSizeBytes?: number;
+    sha256Hash?: string;
+  } = {},
+) {
+  const url = `${normalizedBaseUrl(identity.backendUrl)}/receipts/${receiptId}/upload-complete`;
+  return requestJson<ReceiptProcessingStatusResponse>(
+    url,
+    jsonOptions(identity, "POST", {
+      file_size_bytes: payload.fileSizeBytes,
+      sha256_hash: payload.sha256Hash,
+    }),
+  );
+}
+
+export async function searchMicrosoftWorkbooks(identity: DemoIdentity, query: string, limit = 8) {
+  const url = urlWithParams(`${normalizedBaseUrl(identity.backendUrl)}/integrations/microsoft/workbooks`, {
+    q: query.trim(),
+    limit,
+  });
+  return requestJson<MicrosoftWorkbookSearchResponse>(url, {
+    headers: demoHeaders(identity),
+  });
+}
+
+export async function listMicrosoftWorkbookTables(identity: DemoIdentity, driveId: string, itemId: string) {
+  const url = urlWithParams(`${normalizedBaseUrl(identity.backendUrl)}/integrations/microsoft/workbook-tables`, {
+    driveId,
+    itemId,
+  });
+  return requestJson<MicrosoftWorkbookTableListResponse>(url, {
+    headers: demoHeaders(identity),
+  });
+}
+
+export async function bindExcelWorkbook(
+  identity: DemoIdentity,
+  payload: {
+    driveId: string;
+    itemId: string;
+    tableId: string;
+    workbookName?: string | null;
+    worksheetName?: string | null;
+    tableName?: string | null;
+  },
+) {
+  const url = `${normalizedBaseUrl(identity.backendUrl)}/billing/excel-workbook`;
+  return requestJson<WorkbookBindingResponse>(
+    url,
+    jsonOptions(identity, "PUT", {
+      drive_id: payload.driveId,
+      item_id: payload.itemId,
+      table_id: payload.tableId,
+      workbook_name: payload.workbookName ?? undefined,
+      worksheet_name: payload.worksheetName ?? undefined,
+      table_name: payload.tableName ?? undefined,
+    }),
+  );
 }

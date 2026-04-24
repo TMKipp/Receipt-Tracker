@@ -64,51 +64,52 @@ function formatStatusLabel(status: CommercialReceipt["status"]) {
 
 function buildReviewHeadline(receipt: CommercialReceipt) {
   if (receipt.status === "review_required") {
-    return "Check the extracted fields and approve when they look right.";
+    return "Check the key fields, then approve it.";
   }
 
   if (receipt.status === "syncing") {
-    return "This receipt is already moving through the sync path.";
+    return "This receipt is already moving through sync.";
   }
 
   if (receipt.status === "approved") {
-    return "Approved receipts wait here until the books finish updating.";
+    return "This receipt is approved and waiting to finish posting.";
   }
 
-  return "This receipt stays visible until the books are safe.";
+  return "This receipt needs attention before it can move forward.";
 }
 
-function buildReceiptSummary(receipt: CommercialReceipt) {
+function buildKeyFields(receipt: CommercialReceipt) {
   return [
-    { label: "Vendor", value: receipt.vendor },
     { label: "Date", value: receipt.date },
     { label: "Category", value: receipt.category },
     { label: "Confidence", value: `${Math.round(receipt.confidence * 100)}%` },
+    { label: "Sync", value: receipt.quickbooks === "failed" || receipt.excel === "failed" ? "Needs attention" : "Ready" },
   ];
 }
 
 function buildApprovalChecklist(receipt: CommercialReceipt) {
   return [
     {
-      label: "Vendor and category",
-      value: `${receipt.vendor} | ${receipt.category}`,
+      label: "Vendor and total look right",
+      value: `${receipt.vendor} | ${receipt.amount}`,
       tone: "good" as const,
     },
     {
-      label: "Date and total",
-      value: `${receipt.date} | ${receipt.amount}`,
-      tone: receipt.confidence >= 0.95 ? ("good" as const) : ("warn" as const),
+      label: "Category is mapped",
+      value: receipt.category,
+      tone: "good" as const,
     },
     {
-      label: "Duplicate check",
-      value: receipt.duplicateClear ? "No recent match found" : "Possible duplicate detected",
+      label: "Duplicate guard",
+      value: receipt.duplicateClear ? "Clear" : "Possible duplicate",
       tone: receipt.duplicateClear ? ("good" as const) : ("warn" as const),
     },
     {
       label: "Sync targets",
-      value: `${receipt.quickbooks === "failed" ? "QB needs attention" : "QB ready"} | ${
-        receipt.excel === "failed" ? "Excel needs attention" : "Excel ready"
-      }`,
+      value:
+        receipt.quickbooks === "failed" || receipt.excel === "failed"
+          ? "One target needs attention"
+          : "QuickBooks and Excel ready",
       tone: receipt.quickbooks === "failed" || receipt.excel === "failed" ? ("warn" as const) : ("good" as const),
     },
   ];
@@ -232,7 +233,6 @@ export function AppInboxWorkspace() {
         event.preventDefault();
         const nextIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
         setSelectedReceiptId(filteredReceipts[nextIndex].id);
-        return;
       }
     }
 
@@ -314,16 +314,16 @@ export function AppInboxWorkspace() {
   }
 
   return (
-    <div className="app-review-workspace">
-      <section className="app-next-step-strip">
-        <div className="app-next-step-copy">
-          <span className="pane-label">Start here</span>
-          <h2>Review the next receipt and approve it when the 4 key fields look right.</h2>
-          <p>Most receipts only need one quick check: vendor, date, total, and category.</p>
+    <div className="app-review-workspace app-review-workspace-simple">
+      <section className="app-inbox-intro">
+        <div>
+          <span className="pane-label">Inbox</span>
+          <h2>Pick the next receipt and clear it in one pass.</h2>
+          <p>Start with the queue, confirm the key fields, then approve it or hold it for edits.</p>
         </div>
-        <div className="app-next-step-kpis">
+        <div className="app-inbox-meta">
           <article>
-            <span>In review</span>
+            <span>Waiting</span>
             <strong>{filteredReceipts.length}</strong>
           </article>
           <article>
@@ -331,19 +331,19 @@ export function AppInboxWorkspace() {
             <strong>{selectedReceipt.vendor}</strong>
           </article>
           <article>
-            <span>Next action</span>
-            <strong>{selectedReceipt.status === "review_required" ? "Approve or edit" : "Watch sync"}</strong>
+            <span>Rule</span>
+            <strong>Vendor, date, total, category</strong>
           </article>
         </div>
       </section>
 
-      <div className="app-review-workbench">
-        <section className="app-selection-panel">
+      <div className="app-review-workbench app-review-workbench-simple">
+        <section className="app-selection-panel app-selection-panel-simple">
           <div className="app-selection-header">
             <div>
               <span className="pane-label">Queue</span>
               <h3>Choose the next receipt</h3>
-              <p>Start with the next item waiting for review.</p>
+              <p>Start with the receipt already waiting for review.</p>
             </div>
             <span className="status-pill status-warn">{filteredReceipts.length} waiting</span>
           </div>
@@ -396,35 +396,40 @@ export function AppInboxWorkspace() {
               >
                 <div className="app-selection-item-copy">
                   <strong>{receipt.vendor}</strong>
-                  <small>
-                    {receipt.category} | {receipt.date}
-                  </small>
+                  <small>{receipt.date}</small>
                 </div>
                 <div className="app-selection-item-meta">
                   <span>{receipt.amount}</span>
-                  <small>{formatStatusLabel(receipt.status)}</small>
+                  <small>{receipt.category}</small>
                 </div>
               </button>
             ))}
           </div>
 
-          <div className="app-selection-help">
-            <span>Shortcuts</span>
-            <p>`/` search, `J/K` move through the queue.</p>
+          <div className="app-selection-activity">
+            <span className="pane-label">Recent activity</span>
+            <div className="app-review-footer-list">
+              {activity.slice(0, 3).map((item) => (
+                <article key={`${item.title}-${item.detail}`}>
+                  <strong>{item.title}</strong>
+                  <p>{item.detail}</p>
+                </article>
+              ))}
+            </div>
           </div>
         </section>
 
-        <section className="app-review-stage">
+        <section className="app-review-stage app-review-stage-simple">
           <div className="app-review-stage-header">
             <div>
               <span className="pane-label">Review</span>
-              <h3>Confirm the important fields</h3>
+              <h3>{selectedReceipt.vendor}</h3>
               <p>{buildReviewHeadline(selectedReceipt)}</p>
             </div>
-            <span className="status-pill status-neutral">Receipt {selectedReceipt.id}</span>
+            <span className="status-pill status-neutral">{formatStatusLabel(selectedReceipt.status)}</span>
           </div>
 
-          <div className="app-review-hero">
+          <div className="app-review-hero app-review-hero-simple">
             <div className="app-review-hero-copy">
               <span className="pane-label">Selected receipt</span>
               <h2>{selectedReceipt.vendor}</h2>
@@ -433,22 +438,25 @@ export function AppInboxWorkspace() {
             <div className="app-review-hero-total">
               <span>Total</span>
               <strong>{selectedReceipt.amount}</strong>
-              <small>{formatStatusLabel(selectedReceipt.status)}</small>
+              <small>{selectedReceipt.date}</small>
             </div>
           </div>
 
-          <div className="app-review-summary-grid">
-            {buildReceiptSummary(selectedReceipt).map((item) => (
-              <article key={item.label}>
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-              </article>
-            ))}
-          </div>
+          <div className="app-review-focus-grid">
+            <section className="app-review-card app-review-card-soft">
+              <span className="pane-label">Key fields</span>
+              <div className="app-review-detail-list">
+                {buildKeyFields(selectedReceipt).map((item) => (
+                  <div key={item.label}>
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
 
-          <div className="app-review-details-grid">
-            <section className="app-review-card">
-              <span className="pane-label">Before you approve</span>
+            <section className="app-review-card app-review-card-soft">
+              <span className="pane-label">Checks before approval</span>
               <div className="app-review-detail-list">
                 {buildApprovalChecklist(selectedReceipt).map((item) => (
                   <div key={item.label}>
@@ -458,22 +466,22 @@ export function AppInboxWorkspace() {
                 ))}
               </div>
             </section>
-
-            <section className="app-review-card">
-              <span className="pane-label">Why this looks ready</span>
-              <div className="app-review-story-list">
-                {selectedReceipt.decisionSummary.map((item) => (
-                  <article key={item}>
-                    <span aria-hidden="true" />
-                    <p>{item}</p>
-                  </article>
-                ))}
-              </div>
-            </section>
           </div>
 
-          <section className="app-review-card app-line-items-card">
-            <span className="pane-label">Receipt lines</span>
+          <section className="app-review-card app-review-card-soft">
+            <span className="pane-label">Why this looks ready</span>
+            <div className="app-review-story-list">
+              {selectedReceipt.decisionSummary.map((item) => (
+                <article key={item}>
+                  <span aria-hidden="true" />
+                  <p>{item}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="app-review-card app-review-card-soft">
+            <span className="pane-label">Line items</span>
             <div className="app-review-detail-list">
               {selectedReceipt.lineItems.map((item) => (
                 <div key={item.name}>
@@ -486,34 +494,27 @@ export function AppInboxWorkspace() {
             </div>
           </section>
 
-          <section className="app-sync-panel">
-            <div className="app-sync-panel-header">
-              <div>
-                <span className="pane-label">Approve</span>
-                <h3>What happens after you approve</h3>
-              </div>
-              <span className="status-pill status-good">One approved payload</span>
-            </div>
+          <section className="app-sync-panel app-sync-panel-simple">
             <div className="app-sync-panel-grid">
               <article>
                 <span>QuickBooks</span>
-                <strong>{selectedReceipt.quickbooks === "synced" ? "Already posted" : "Create expense"}</strong>
-                <p>The approved values will become one expense record.</p>
+                <strong>{selectedReceipt.quickbooks === "synced" ? "Already posted" : "Will create expense"}</strong>
+                <p>The approved values become one expense record.</p>
               </article>
               <article>
                 <span>Excel</span>
-                <strong>{selectedReceipt.excel === "synced" ? "Already appended" : "Append row"}</strong>
-                <p>The same approved values will be appended to the workbook table.</p>
+                <strong>{selectedReceipt.excel === "synced" ? "Already appended" : "Will append row"}</strong>
+                <p>The same approved values are added to the workbook table.</p>
               </article>
               <article>
                 <span>Receipt image</span>
-                <strong>Keep the source</strong>
-                <p>The image stays attached so recovery is simple if something fails later.</p>
+                <strong>Always kept</strong>
+                <p>The original image stays attached for audit and recovery.</p>
               </article>
             </div>
           </section>
 
-          <div className="app-primary-actions">
+          <div className="app-primary-actions app-primary-actions-bar">
             <button type="button" onClick={handleApproveNow}>
               Approve and sync
             </button>
@@ -527,26 +528,6 @@ export function AppInboxWorkspace() {
           </div>
         </section>
       </div>
-
-      <section className="app-review-footer">
-        <div className="app-review-footer-card">
-          <span className="pane-label">Recent system activity</span>
-          <div className="app-review-footer-list">
-            {activity.slice(0, 3).map((item) => (
-              <article key={`${item.title}-${item.detail}`}>
-                <strong>{item.title}</strong>
-                <p>{item.detail}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        <div className="app-review-footer-card">
-          <span className="pane-label">Simple rule</span>
-          <h3>Approve only when the key fields look right.</h3>
-          <p>If something feels wrong, choose <strong>Needs changes</strong> and keep the books clean.</p>
-        </div>
-      </section>
 
       <ActionToastStack toasts={toasts} onDismiss={dismissToast} />
     </div>

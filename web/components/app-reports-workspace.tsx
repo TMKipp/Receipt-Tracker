@@ -11,9 +11,9 @@ import { monthlyBuckets } from "@/lib/mock-data";
 type ReportFocus = "spend" | "sync" | "review";
 
 const reportFocuses: Array<{ id: ReportFocus; label: string }> = [
-  { id: "spend", label: "Spend view" },
-  { id: "sync", label: "Sync health" },
-  { id: "review", label: "Review pressure" },
+  { id: "spend", label: "Spend" },
+  { id: "sync", label: "Sync" },
+  { id: "review", label: "Review" },
 ];
 
 function parseMonthIndex(value: string | null) {
@@ -21,7 +21,6 @@ function parseMonthIndex(value: string | null) {
   if (Number.isNaN(nextIndex) || nextIndex < 0 || nextIndex >= monthlyBuckets.length) {
     return 0;
   }
-
   return nextIndex;
 }
 
@@ -29,7 +28,6 @@ function parseFocus(value: string | null): ReportFocus {
   if (value === "sync" || value === "review") {
     return value;
   }
-
   return "spend";
 }
 
@@ -46,62 +44,65 @@ export function AppReportsWorkspace() {
   const activeCategory =
     currentMonth.categories.find((category) => category.name === selectedCategory) ?? currentMonth.categories[0];
 
-  const reportLines = useMemo(() => {
+  const summaryCards = useMemo(() => {
     if (focus === "sync") {
       return [
         { label: "QuickBooks success", value: "98%", detail: "Approved receipts posting cleanly" },
-        { label: "Excel success", value: "97%", detail: "Pinned workbook still matches the row contract" },
-        { label: "Retry posture", value: "2 waiting", detail: "Visible failures before support is needed" },
+        { label: "Excel success", value: "97%", detail: "Workbook table still matches" },
+        { label: "Retries waiting", value: "2", detail: "Visible before support is needed" },
       ];
     }
 
     if (focus === "review") {
       return [
-        { label: "Needs review", value: "14", detail: "Receipts still waiting on an owner trust decision" },
-        { label: "High confidence", value: "31%", detail: "Automation still gated behind approval policy" },
-        { label: "Duplicate guard", value: "Clear", detail: "No active collisions in the current queue" },
+        { label: "Needs review", value: "14", detail: "Receipts still waiting on a decision" },
+        { label: "High confidence", value: "31%", detail: "Automation still gated" },
+        { label: "Duplicate guard", value: "Clear", detail: "No active collisions" },
       ];
     }
 
     return [
-      { label: "Month-to-date spend", value: currentMonth.total, detail: "Visible spend after approved receipts" },
-      { label: "Largest category", value: activeCategory.name, detail: `${activeCategory.share} of this month is concentrated here` },
-      { label: "Selected category", value: activeCategory.total, detail: "Useful when review pressure and spend stay attached" },
+      { label: "Month total", value: currentMonth.total, detail: "Approved spend so far" },
+      { label: "Largest category", value: activeCategory.name, detail: activeCategory.share },
+      { label: "Selected category", value: activeCategory.total, detail: "Current focus" },
     ];
   }, [activeCategory, currentMonth, focus]);
 
-  const focusStory = useMemo(() => {
+  const focusPanel = useMemo(() => {
     if (focus === "sync") {
       return {
-        title: "The reporting layer is tied to sync trust, not decorative charts.",
-        detail: "Failures stay visible next to the spend they affect, so the owner never has to guess whether the books are actually up to date.",
-        stats: [
-          { label: "QuickBooks success", value: "98%" },
-          { label: "Excel success", value: "97%" },
+        title: "Sync health",
+        detail: "Use this view to catch failed posts before they become accounting drift.",
+        rows: [
+          { label: "QuickBooks", value: "98% success" },
+          { label: "Excel", value: "97% success" },
           { label: "Retry window", value: "< 5 min" },
+          { label: "Next action", value: "Open failed posts" },
         ],
       };
     }
 
     if (focus === "review") {
       return {
-        title: `${activeCategory.name} is where manual trust work still matters most.`,
-        detail: "The owner should see where confidence softens, where duplicate checks matter, and where a quick edit saves the sync path from churn.",
-        stats: [
+        title: "Review pressure",
+        detail: "Use this view to see where human review is still doing real work.",
+        rows: [
           { label: "Manual saves", value: "31%" },
-          { label: "Review age", value: "14 min" },
-          { label: "Top vendor pattern", value: "Staples" },
+          { label: "Queue age", value: "14 min" },
+          { label: "Top vendor", value: "Staples" },
+          { label: "Next action", value: "Resolve oldest review" },
         ],
       };
     }
 
     return {
-      title: `${activeCategory.name} is driving ${currentMonth.month}.`,
-      detail: "Spend is only useful when it stays tied to the operating story: which merchants rose, what synced cleanly, and where review still protects the books.",
-      stats: [
-        { label: "Category share", value: activeCategory.share },
+      title: "Spend view",
+      detail: "Use this view to see what changed this month and where the money is moving.",
+      rows: [
+        { label: "Month", value: currentMonth.month },
         { label: "Category total", value: activeCategory.total },
-        { label: "Spend freshness", value: "Live" },
+        { label: "Category share", value: activeCategory.share },
+        { label: "Next action", value: "Watch category trend" },
       ],
     };
   }, [activeCategory, currentMonth.month, focus]);
@@ -126,7 +127,6 @@ export function AppReportsWorkspace() {
     if (nextMonth !== monthIndex) {
       setMonthIndex(nextMonth);
     }
-
     if (nextFocus !== focus) {
       setFocus(nextFocus);
     }
@@ -178,11 +178,11 @@ export function AppReportsWorkspace() {
         <div className="app-surface-header">
           <div>
             <p className="pane-label">Reports</p>
-            <h2>See spending, sync health, and review pressure</h2>
-            <p>Use this screen to answer one question quickly: what changed, and does it need action?</p>
+            <h2>See what changed and what needs attention.</h2>
+            <p>Use this screen to answer one question fast: what changed, and do I need to act on it?</p>
           </div>
           <span className={`status-pill ${focus === "sync" ? "status-neutral" : focus === "review" ? "status-warn" : "status-good"}`}>
-            {focus === "sync" ? "Sync view" : focus === "review" ? "Review view" : "Reporting live"}
+            {focus === "sync" ? "Sync view" : focus === "review" ? "Review view" : "Spend view"}
           </span>
         </div>
 
@@ -195,7 +195,7 @@ export function AppReportsWorkspace() {
                 className={index === monthIndex ? "is-active" : undefined}
                 onClick={() => {
                   setMonthIndex(index);
-                  pushToast("Month changed", `${bucket.month} is now the active reporting window.`, "neutral");
+                  pushToast("Month changed", `${bucket.month} is now the active month.`, "neutral");
                 }}
               >
                 {bucket.month}
@@ -210,7 +210,7 @@ export function AppReportsWorkspace() {
                 className={entry.id === focus ? "is-active" : undefined}
                 onClick={() => {
                   setFocus(entry.id);
-                  pushToast("Focus updated", `${entry.label} is now shaping the reporting story.`, entry.id === "review" ? "warn" : "neutral");
+                  pushToast("Focus updated", `${entry.label} view is active.`, entry.id === "review" ? "warn" : "neutral");
                 }}
               >
                 {entry.label}
@@ -220,22 +220,21 @@ export function AppReportsWorkspace() {
         </div>
 
         <div className="app-report-strip">
-          {reportLines.map((line) => (
-            <article key={line.label}>
-              <span>{line.label}</span>
-              <strong>{line.value}</strong>
-              <p>{line.detail}</p>
+          {summaryCards.map((item) => (
+            <article key={item.label}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+              <p>{item.detail}</p>
             </article>
           ))}
         </div>
 
-        <div className="app-review-details-grid">
-          <section className="app-review-card">
-            <span className="pane-label">What this view means</span>
-            <h3>{focusStory.title}</h3>
-            <p>{focusStory.detail}</p>
+        <div className="app-report-panels">
+          <section className="app-review-card app-review-card-soft">
+            <span className="pane-label">{focusPanel.title}</span>
+            <h3>{focusPanel.detail}</h3>
             <div className="app-review-detail-list">
-              {focusStory.stats.map((item) => (
+              {focusPanel.rows.map((item) => (
                 <div key={item.label}>
                   <span>{item.label}</span>
                   <strong>{item.value}</strong>
@@ -244,7 +243,7 @@ export function AppReportsWorkspace() {
             </div>
           </section>
 
-          <section className="app-review-card">
+          <section className="app-review-card app-review-card-soft">
             <span className="pane-label">Selected category</span>
             <h3>{activeCategory.name}</h3>
             <div className="app-review-detail-list">
@@ -257,12 +256,12 @@ export function AppReportsWorkspace() {
                 <strong>{activeCategory.total}</strong>
               </div>
               <div>
-                <span>Share of spend</span>
+                <span>Share</span>
                 <strong>{activeCategory.share}</strong>
               </div>
               <div>
-                <span>Next action</span>
-                <strong>{focus === "sync" ? "Check failed posts" : focus === "review" ? "Resolve reviews" : "Watch category trend"}</strong>
+                <span>Current lens</span>
+                <strong>{focus === "sync" ? "Sync impact" : focus === "review" ? "Review impact" : "Spend trend"}</strong>
               </div>
             </div>
           </section>
@@ -284,7 +283,7 @@ export function AppReportsWorkspace() {
                 className={`app-category-bar-button ${category.name === activeCategory.name ? "is-active" : ""}`.trim()}
                 onClick={() => {
                   setSelectedCategory(category.name);
-                  pushToast("Category focused", `${category.name} is now the active reporting lens.`, "good");
+                  pushToast("Category focused", `${category.name} is now the selected category.`, "good");
                 }}
               >
                 <div className="app-category-bar-copy">
@@ -294,33 +293,24 @@ export function AppReportsWorkspace() {
                 <div className="app-category-bar-track">
                   <div className="app-category-bar-fill" style={{ width: category.share }} />
                 </div>
-                <small>{category.share} of month-to-date spend</small>
+                <small>{category.share} of month total</small>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="app-account-actions">
-          <button
-            type="button"
-            onClick={() => pushToast("Summary exported", `${currentMonth.month} is staged for CSV and PDF export.`, "good")}
-          >
+        <div className="app-primary-actions app-primary-actions-bar">
+          <button type="button" onClick={() => pushToast("Summary exported", `${currentMonth.month} is staged for export.`, "good")}>
             Export summary
           </button>
           <button
             type="button"
             onClick={() => {
               setFocus("sync");
-              pushToast("Sync exceptions opened", "The reporting view shifted into sync health so failures stay visible.", "warn");
+              pushToast("Sync exceptions opened", "The reports view moved into sync health.", "warn");
             }}
           >
             Open sync exceptions
-          </button>
-          <button
-            type="button"
-            onClick={() => pushToast("Month pinned", `${currentMonth.month} stays pinned in this workspace until you change it.`, "neutral")}
-          >
-            Pin this month
           </button>
         </div>
       </section>
@@ -330,7 +320,7 @@ export function AppReportsWorkspace() {
           <div className="app-mobile-mirror-header">
             <div>
               <span className="pane-label">Phone mirror</span>
-              <strong>{focus === "review" ? "Review pressure on mobile" : focus === "sync" ? "Sync posture on mobile" : "Spending story on mobile"}</strong>
+              <strong>{focus === "review" ? "Review pressure on mobile" : focus === "sync" ? "Sync posture on mobile" : "Spending on mobile"}</strong>
             </div>
             <small>{currentMonth.month}</small>
           </div>

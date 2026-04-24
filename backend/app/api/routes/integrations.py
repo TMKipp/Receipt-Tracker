@@ -14,10 +14,17 @@ from app.schemas.integrations import (
     ConnectUrlResponse,
     IntegrationHealthResponse,
     IntegrationStatusRead,
+    MicrosoftWorkbookSearchResponse,
+    MicrosoftWorkbookTableListResponse,
     OAuthCallbackRequest,
 )
 from app.services.billing import workbook_binding_to_read
-from app.services.microsoft_graph import begin_microsoft_connection, complete_microsoft_callback
+from app.services.microsoft_graph import (
+    begin_microsoft_connection,
+    complete_microsoft_callback,
+    list_workbook_tables,
+    search_excel_workbooks,
+)
 from app.services.provider_errors import ProviderError
 from app.services.quickbooks import begin_quickbooks_connection, complete_quickbooks_callback
 from app.services.receipts import serialize_integration_status
@@ -132,6 +139,60 @@ async def microsoft_status(
         )
     )
     return serialize_integration_status(connection, IntegrationProvider.MICROSOFT)
+
+
+@router.get("/microsoft/workbooks", response_model=MicrosoftWorkbookSearchResponse)
+async def microsoft_workbooks(
+    q: str | None = Query(default=None, max_length=100),
+    limit: int = Query(default=8, ge=1, le=25),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MicrosoftWorkbookSearchResponse:
+    connection = db.scalar(
+        select(IntegrationConnection).where(
+            IntegrationConnection.user_id == current_user.id,
+            IntegrationConnection.provider == IntegrationProvider.MICROSOFT,
+        )
+    )
+    if connection is None or connection.status != IntegrationStatus.CONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Microsoft must be connected before you can search existing Excel workbooks.",
+        )
+
+    try:
+        workbooks = search_excel_workbooks(db, connection, query=q, limit=limit)
+    except ProviderError as exc:
+        _raise_provider_error(exc)
+
+    return MicrosoftWorkbookSearchResponse(data=workbooks)
+
+
+@router.get("/microsoft/workbook-tables", response_model=MicrosoftWorkbookTableListResponse)
+async def microsoft_workbook_tables(
+    drive_id: str = Query(alias="driveId", min_length=1),
+    item_id: str = Query(alias="itemId", min_length=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MicrosoftWorkbookTableListResponse:
+    connection = db.scalar(
+        select(IntegrationConnection).where(
+            IntegrationConnection.user_id == current_user.id,
+            IntegrationConnection.provider == IntegrationProvider.MICROSOFT,
+        )
+    )
+    if connection is None or connection.status != IntegrationStatus.CONNECTED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Microsoft must be connected before you can inspect workbook tables.",
+        )
+
+    try:
+        tables = list_workbook_tables(db, connection, drive_id=drive_id, item_id=item_id)
+    except ProviderError as exc:
+        _raise_provider_error(exc)
+
+    return MicrosoftWorkbookTableListResponse(data=tables)
 
 
 @router.get("/health", response_model=IntegrationHealthResponse)
