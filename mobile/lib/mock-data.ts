@@ -72,7 +72,7 @@ export const receipts: MobileReceipt[] = [
 ];
 
 export const queueItems = [
-  { id: "queue-001", label: "Lobby paint supply run", state: "queued offline" },
+  { id: "queue-001", label: "Lobby paint supply run", state: "queued_offline" },
   { id: "queue-002", label: "Airport parking receipt", state: "uploading" },
   { id: "queue-003", label: "Coffee meeting copy", state: "processing" },
 ];

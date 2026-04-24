@@ -1,56 +1,283 @@
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useState } from "react";
+import * as ImagePicker from "expo-image-picker";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ScreenFrame } from "@/components/screen-frame";
 import { StatusPill } from "@/components/status-pill";
+import {
+  type ApiReceipt,
+  type CapturedReceiptAsset,
+  approveReceipt,
+  getDefaultMobileIdentity,
+  getIntegrationHealth,
+  uploadCapturedReceipt,
+} from "@/lib/backend-api";
 import { queueItems } from "@/lib/mock-data";
 import { queueStateMeta } from "@/lib/offline-queue";
 import { palette } from "@/lib/theme";
 
+const defaultIdentity = getDefaultMobileIdentity();
+
 function queueTone(state: string): "accent" | "warm" | "neutral" | "danger" {
   switch (state) {
-    case "queued offline":
+    case "queued_offline":
       return "warm";
     case "uploading":
+    case "approved":
       return "accent";
     case "processing":
+    case "review_required":
+    case "synced":
       return "neutral";
     default:
       return "danger";
   }
 }
 
+function receiptStatusToQueueState(status: string): string {
+  switch (status) {
+    case "review_required":
+      return "review_required";
+    case "approved":
+      return "approved";
+    case "synced":
+      return "synced";
+    case "failed":
+      return "failed";
+    case "processing":
+      return "processing";
+    default:
+      return "processing";
+  }
+}
+
+function moneyLabel(receipt: ApiReceipt | null) {
+  if (!receipt?.total) {
+    return "Pending";
+  }
+  const numeric = Number(receipt.total);
+  if (Number.isNaN(numeric)) {
+    return receipt.total;
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: receipt.currency || "USD",
+  }).format(numeric);
+}
+
 export default function CaptureScreen() {
+  const identity = defaultIdentity;
+  const [asset, setAsset] = useState<CapturedReceiptAsset | null>(null);
+  const [receipt, setReceipt] = useState<ApiReceipt | null>(null);
+  const [notes, setNotes] = useState("");
+  const [queueState, setQueueState] = useState("queued_offline");
+  const [statusMessage, setStatusMessage] = useState("Take a photo or choose one from your library.");
+  const [readyTargets, setReadyTargets] = useState<Array<"quickbooks" | "excel">>([]);
+  const [isBusy, setIsBusy] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadIntegrationHealth() {
+      try {
+        const health = await getIntegrationHealth(identity);
+        if (!isCancelled) {
+          setReadyTargets(
+            health.sync_ready_targets.filter((target): target is "quickbooks" | "excel" =>
+              target === "quickbooks" || target === "excel",
+            ),
+          );
+        }
+      } catch {
+        if (!isCancelled) {
+          setReadyTargets([]);
+        }
+      }
+    }
+
+    void loadIntegrationHealth();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [identity]);
+
+  async function pickReceipt(source: "camera" | "library") {
+    if (source === "camera") {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setQueueState("failed");
+        setStatusMessage("Camera permission is needed to scan receipts.");
+        return;
+      }
+    }
+
+    const result =
+      source === "camera"
+        ? await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            quality: 0.72,
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          })
+        : await ImagePicker.launchImageLibraryAsync({
+            allowsEditing: true,
+            quality: 0.72,
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          });
+
+    if (result.canceled || !result.assets[0]) {
+      return;
+    }
+
+    const nextAsset = result.assets[0];
+    setAsset({
+      uri: nextAsset.uri,
+      fileName: nextAsset.fileName,
+      mimeType: nextAsset.mimeType,
+      fileSize: nextAsset.fileSize,
+    });
+    setReceipt(null);
+    setQueueState("queued_offline");
+    setStatusMessage("Receipt is staged locally. Upload when the connection is stable.");
+  }
+
+  async function uploadSelectedReceipt() {
+    if (!asset) {
+      setStatusMessage("Capture or choose a receipt first.");
+      return;
+    }
+
+    setIsBusy(true);
+    setQueueState("uploading");
+    setStatusMessage("Uploading the receipt image to protected storage...");
+
+    try {
+      setQueueState("processing");
+      const uploadedReceipt = await uploadCapturedReceipt(identity, asset, notes);
+      setReceipt(uploadedReceipt);
+      setQueueState(receiptStatusToQueueState(uploadedReceipt.status));
+      setStatusMessage(
+        uploadedReceipt.status === "failed"
+          ? uploadedReceipt.processing_error || "Receipt processing failed."
+          : "Receipt fields are ready for review.",
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Upload failed.";
+      setQueueState(detail.toLowerCase().includes("network") ? "queued_offline" : "failed");
+      setStatusMessage(detail);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function approveAndSync() {
+    if (!receipt) {
+      return;
+    }
+
+    setIsBusy(true);
+    setQueueState("approved");
+    setStatusMessage(
+      readyTargets.length ? "Approving and queueing connected sync targets..." : "Approving receipt locally...",
+    );
+
+    try {
+      const approved = await approveReceipt(identity, receipt.id, readyTargets);
+      setReceipt(approved);
+      setQueueState(receiptStatusToQueueState(approved.status));
+      setStatusMessage(
+        readyTargets.length
+          ? "Approved and queued for connected accounting systems."
+          : "Approved. Connect QuickBooks or Excel to sync.",
+      );
+    } catch (error) {
+      setQueueState("failed");
+      setStatusMessage(error instanceof Error ? error.message : "Approval failed.");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   return (
     <ScreenFrame
       eyebrow="Capture"
-      title="Capture stays calm even when the network is not."
-      description="Offline queue state, upload progress, and processing trust all stay on the same screen so the receipt never feels lost."
+      title="Scan, review, and sync without losing the receipt."
+      description="Camera capture, library upload, queue state, OCR progress, and approval all stay on the same screen."
     >
       <View style={styles.stage}>
         <View style={styles.stageHeader}>
-          <Text style={styles.stageLabel}>Camera stage</Text>
-          <Text style={styles.stageMeta}>Median online processing: 7.8s</Text>
+          <Text style={styles.stageLabel}>Receipt scanner</Text>
+          <StatusPill label={queueStateMeta[queueState].label} tone={queueTone(queueState)} />
         </View>
 
         <View style={styles.cameraCanvas}>
-          <View style={styles.receiptGuide}>
-            <View style={styles.cornerTopLeft} />
-            <View style={styles.cornerTopRight} />
-            <View style={styles.cornerBottomLeft} />
-            <View style={styles.cornerBottomRight} />
-            <Text style={styles.guideTitle}>Align the full receipt</Text>
-            <Text style={styles.guideCopy}>Crop, compress, and queue locally if the connection drops.</Text>
-          </View>
+          {asset ? (
+            <Image source={{ uri: asset.uri }} style={styles.receiptPreview} />
+          ) : (
+            <View style={styles.receiptGuide}>
+              <View style={styles.cornerTopLeft} />
+              <View style={styles.cornerTopRight} />
+              <View style={styles.cornerBottomLeft} />
+              <View style={styles.cornerBottomRight} />
+              <Text style={styles.guideTitle}>Align the full receipt</Text>
+              <Text style={styles.guideCopy}>Crop, compress, and queue locally if the connection drops.</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.actionRow}>
-          <View style={styles.primaryAction}>
+          <Pressable style={styles.primaryAction} onPress={() => pickReceipt("camera")} disabled={isBusy}>
             <Text style={styles.primaryActionText}>Capture receipt</Text>
-          </View>
-          <View style={styles.secondaryAction}>
+          </Pressable>
+          <Pressable style={styles.secondaryAction} onPress={() => pickReceipt("library")} disabled={isBusy}>
             <Text style={styles.secondaryActionText}>Upload from library</Text>
+          </Pressable>
+        </View>
+
+        <TextInput
+          style={styles.notesInput}
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Add a business note before upload"
+          placeholderTextColor={palette.muted}
+        />
+
+        <Pressable style={[styles.uploadAction, !asset && styles.disabledAction]} onPress={uploadSelectedReceipt} disabled={!asset || isBusy}>
+          <Text style={styles.uploadActionText}>{isBusy ? "Working..." : "Upload and extract"}</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.liveStatusCard}>
+        <View style={styles.liveStatusHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Live receipt status</Text>
+            <Text style={styles.queueDetail}>{statusMessage}</Text>
+          </View>
+          <Text style={styles.healthValue}>{moneyLabel(receipt)}</Text>
+        </View>
+
+        <View style={styles.receiptFacts}>
+          <View style={styles.factCell}>
+            <Text style={styles.healthLabel}>Vendor</Text>
+            <Text style={styles.factValue}>{receipt?.merchant_name || "Pending"}</Text>
+          </View>
+          <View style={styles.factCell}>
+            <Text style={styles.healthLabel}>Category</Text>
+            <Text style={styles.factValue}>{receipt?.category_name || "Needs review"}</Text>
+          </View>
+          <View style={styles.factCell}>
+            <Text style={styles.healthLabel}>Sync targets</Text>
+            <Text style={styles.factValue}>{readyTargets.length ? readyTargets.join(" + ") : "Connect first"}</Text>
           </View>
         </View>
+
+        {receipt ? (
+          <Pressable style={styles.primaryAction} onPress={approveAndSync} disabled={isBusy || !!receipt.approved_at}>
+            <Text style={styles.primaryActionText}>
+              {receipt.approved_at ? "Approved" : readyTargets.length ? "Approve and sync" : "Approve receipt"}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.healthStrip}>
@@ -121,6 +348,12 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: palette.backgroundDeep,
     justifyContent: "center",
+  },
+  receiptPreview: {
+    width: "100%",
+    minHeight: 248,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceRaised,
   },
   receiptGuide: {
     position: "relative",
@@ -218,6 +451,65 @@ const styles = StyleSheet.create({
     color: palette.ink,
     fontSize: 14,
     fontWeight: "700",
+  },
+  notesInput: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.surfaceSoft,
+    color: palette.ink,
+    fontSize: 14,
+  },
+  uploadAction: {
+    paddingVertical: 15,
+    borderRadius: 18,
+    backgroundColor: palette.accent,
+    alignItems: "center",
+  },
+  disabledAction: {
+    opacity: 0.48,
+  },
+  uploadActionText: {
+    color: palette.surface,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  liveStatusCard: {
+    gap: 16,
+    padding: 20,
+    borderRadius: 28,
+    backgroundColor: palette.surface,
+    borderWidth: 1,
+    borderColor: palette.line,
+  },
+  liveStatusHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 16,
+  },
+  receiptFacts: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+  },
+  factCell: {
+    minWidth: "30%",
+    flexGrow: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderRadius: 18,
+    backgroundColor: palette.surfaceSoft,
+  },
+  factValue: {
+    marginTop: 6,
+    color: palette.ink,
+    fontSize: 15,
+    fontWeight: "700",
+    textTransform: "capitalize",
   },
   healthStrip: {
     flexDirection: "row",
