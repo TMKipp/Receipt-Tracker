@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     auto_approve_confidence_threshold: float = 0.95
     sync_run_inline: bool = True
     max_sync_attempts: int = 3
+    worker_poll_seconds: int = 5
+    worker_processing_batch_size: int = 25
+    worker_sync_batch_size: int = 25
 
     @property
     def resolved_supabase_jwt_issuer(self) -> str:

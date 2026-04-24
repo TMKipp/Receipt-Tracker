@@ -29,6 +29,7 @@ from app.services.provider_errors import ProviderError
 from app.services.quickbooks import begin_quickbooks_connection, complete_quickbooks_callback
 from app.services.receipts import serialize_integration_status
 from app.services.sync_runner import run_due_sync_jobs
+from app.services.worker_runner import run_worker_once
 
 router = APIRouter()
 
@@ -241,3 +242,20 @@ async def run_sync_jobs(
         "jobIds": [str(job.id) for job in jobs],
         "statuses": {str(job.id): job.status.value for job in jobs},
     }
+
+
+@router.post("/worker/run")
+async def run_worker_cycle(
+    processing_limit: int = Query(default=25, ge=1, le=100, alias="processingLimit"),
+    sync_limit: int = Query(default=25, ge=1, le=100, alias="syncLimit"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    summary = run_worker_once(
+        db,
+        processing_limit=processing_limit,
+        sync_limit=sync_limit,
+        user_id=current_user.id,
+    )
+    db.commit()
+    return summary.as_dict()

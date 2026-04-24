@@ -44,14 +44,30 @@ Optional approval + sync:
 node .\scripts\smoke-receipt-flow.mjs --file "C:\path\to\receipt.jpg" --approve --sync-targets quickbooks,excel
 ```
 
-## 4. Enable real providers
+## 4. Run the worker loop
+
+Development runs sync inline by default, but the worker is available when you want production-like behavior:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-worker.ps1 -Once
+```
+
+For a continuous local worker:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run-worker.ps1
+```
+
+Set `SYNC_RUN_INLINE=false` to force approved receipts through the queued worker path.
+
+## 5. Enable real providers
 
 - Set `TEXTRACT_ENABLED=true` and provide working AWS credentials for Textract.
 - Set `OPENAI_ENABLED=true` and `OPENAI_API_KEY` for structured normalization.
 - Set QuickBooks and Microsoft OAuth credentials in `.env`.
 - For browser S3 uploads, also configure bucket CORS for `PUT` from your local web origin.
 
-## 5. Stop the stack
+## 6. Stop the stack
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\stop-local-stack.ps1

@@ -31,6 +31,8 @@ The backend will auto-create tables on startup when `APP_AUTO_CREATE_SCHEMA=true
 - `POST /api/v1/integrations/quickbooks/callback` exchanges an auth code for real Intuit tokens, imports QuickBooks expense accounts into categories, and prepares expense sync.
 - `POST /api/v1/integrations/microsoft/callback` exchanges a Microsoft auth code for real Graph tokens.
 - `POST /api/v1/receipts/{receipt_id}/sync` executes sync inline by default when `SYNC_RUN_INLINE=true`, so approved receipts can push straight to QuickBooks and Excel without a separate worker during development.
+- `python -m app.worker --once` processes uploaded receipts and due sync jobs once; omit `--once` to run the worker loop continuously.
+- `POST /api/v1/integrations/worker/run` runs a user-scoped worker cycle for local recovery and support workflows.
 
 ## Credential-dependent paths
 
@@ -42,7 +44,7 @@ The backend will auto-create tables on startup when `APP_AUTO_CREATE_SCHEMA=true
 
 ## Remaining hardening work
 
-1. Add a background worker loop for OCR and sync retries instead of relying on inline execution.
+1. Wire the worker process into production hosting with `SYNC_RUN_INLINE=false` for long-running environments.
 2. Add support for QuickBooks receipt attachment upload and Excel table-template creation/validation UX.
 3. Add tests for duplicate detection, auto-approval eligibility, OAuth state validation, billing webhooks, and sync invalidation after edits.
 4. Add observability around OCR failures, token refresh failures, and sync retry exhaustion.

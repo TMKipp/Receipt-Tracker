@@ -5,9 +5,10 @@ import re
 from datetime import UTC, date, datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
+from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.models.category import Category
@@ -500,3 +501,26 @@ def process_uploaded_receipt(db: Session, receipt: Receipt) -> Receipt:
         receipt.processed_at = now
         db.flush()
         return receipt
+
+
+def run_processing_backlog(db: Session, *, limit: int = 25, user_id: UUID | None = None) -> list[Receipt]:
+    filters = [Receipt.status == ReceiptStatus.UPLOADED]
+    if user_id is not None:
+        filters.append(Receipt.user_id == user_id)
+
+    receipts = db.scalars(
+        select(Receipt)
+        .where(*filters)
+        .options(
+            selectinload(Receipt.user),
+            selectinload(Receipt.files),
+            selectinload(Receipt.category),
+            selectinload(Receipt.vendor),
+            selectinload(Receipt.line_items),
+            selectinload(Receipt.versions),
+        )
+        .order_by(Receipt.created_at.asc())
+        .limit(limit)
+    ).all()
+
+    return [process_uploaded_receipt(db, receipt) for receipt in receipts]

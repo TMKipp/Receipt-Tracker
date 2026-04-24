@@ -44,6 +44,8 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - `GET /integrations/microsoft/workbooks`
 - `GET /integrations/microsoft/workbook-tables`
 - `GET /integrations/health`
+- `POST /integrations/sync-jobs/run`
+- `POST /integrations/worker/run`
 
 ## Reporting
 
