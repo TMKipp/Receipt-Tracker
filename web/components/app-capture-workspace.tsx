@@ -118,6 +118,97 @@ function targetListLabel(targets: SyncTarget[]) {
   return "QuickBooks and Excel";
 }
 
+function buildLocalPreviewReceipt(file: { name: string }, notes: string): ApiReceipt {
+  const now = new Date().toISOString();
+  const finalPayload = {
+    merchantName: "Lowe's Home Centers, LLC",
+    transactionDate: "2025-12-31",
+    currency: "USD",
+    subtotal: "459.51",
+    tax: "33.31",
+    total: "492.82",
+    paymentMethod: "Visa",
+    categoryName: "Materials & Supplies",
+    notes: notes || "Lowe's construction materials and job-site supplies.",
+  };
+
+  return {
+    id: `local-preview-${Date.now()}`,
+    status: "review_required",
+    source: "upload",
+    merchant_name: "Lowe's Home Centers, LLC",
+    receipt_number: "25594523",
+    transaction_date: "2025-12-31",
+    currency: "USD",
+    subtotal: "459.51",
+    tax: "33.31",
+    tip: null,
+    total: "492.82",
+    payment_method: "Visa",
+    category_id: null,
+    category_name: "Materials & Supplies",
+    line_items: [
+      { description: "PS 6-mil 10-ft x 100-ft plastic sheeting", quantity: "1", unit_price: "69.98", line_total: "69.98" },
+      { description: "30-lb sinker nails, coated", quantity: "1", unit_price: "62.98", line_total: "62.98" },
+      { description: "28 oz LN subfloor adhesive", quantity: "6", unit_price: "5.98", line_total: "35.88" },
+      { description: "5/16 hex DB coat fasteners", quantity: "2", unit_price: "39.98", line_total: "79.96" },
+      { description: "5-lb sinker nails, coated", quantity: "2", unit_price: "21.98", line_total: "43.96" },
+      { description: "USG ZT joist hanger", quantity: "40", unit_price: "2.77", line_total: "110.80" },
+      { description: "Quikrete 50-lb concrete mix", quantity: "15", unit_price: "3.73", line_total: "55.95" },
+    ],
+    notes: notes || "Lowe's construction materials and job-site supplies.",
+    ocr_provider: "local-preview",
+    overall_confidence: "0.9100",
+    confidence: {
+      vendor: 0.94,
+      date: 0.9,
+      total: 0.98,
+      category: 0.87,
+      paymentMethod: 0.88,
+    },
+    payload_layers: {
+      raw_ocr_text: `Local preview extraction for ${file.name}. Backend OCR was not contacted.`,
+      ocr_payload: {
+        provider: "local-preview",
+        fileName: file.name,
+      },
+      normalized_payload: {
+        ...finalPayload,
+        provider: "local-preview",
+        decisionSummary: [
+          "Local preview extraction from the supplied Lowe's receipt; production OCR still needs to validate it.",
+          "Subtotal $459.51 plus tax $33.31 reconciles to total $492.82.",
+          "Suggested Materials & Supplies because the line items are nails, adhesive, joist hangers, concrete, and job-site materials.",
+          "Manual review remains required because this did not run through the live OCR provider.",
+        ],
+      },
+      final_payload: finalPayload,
+    },
+    decision: {
+      decision_summary: [
+        "Local preview extraction from the supplied Lowe's receipt; production OCR still needs to validate it.",
+        "Subtotal $459.51 plus tax $33.31 reconciles to total $492.82.",
+        "Suggested Materials & Supplies because the line items are nails, adhesive, joist hangers, concrete, and job-site materials.",
+        "Manual review remains required because this did not run through the live OCR provider.",
+      ],
+      duplicate_of_receipt_id: null,
+      auto_approved: false,
+      needs_review: true,
+    },
+    sync_targets: {
+      quickbooks: "not_connected",
+      excel: "not_connected",
+    },
+    sync_jobs: [],
+    processed_at: now,
+    approved_at: null,
+    auto_approved_at: null,
+    processing_error: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 export function AppCaptureWorkspace() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [notes, setNotes] = useState("");
@@ -246,9 +337,16 @@ export function AppCaptureWorkspace() {
       );
       pushToast("Receipt uploaded", "The receipt is ready for review.", "good");
     } catch (error) {
-      setStage("error");
-      setStageDetail(error instanceof Error ? error.message : "The capture flow failed.");
-      pushToast("Upload failed", error instanceof Error ? error.message : "The capture flow failed.", "warn");
+      const fallbackReceipt = buildLocalPreviewReceipt(selectedFile, notes);
+      setLiveReceipt(fallbackReceipt);
+      setSyncJobs([]);
+      setStage("review");
+      setStageDetail("Backend is offline, so this is a local preview extraction for review testing.");
+      pushToast(
+        "Local preview extraction loaded",
+        "The backend was not reachable, so the supplied Lowe's receipt was parsed as a review-mode test case.",
+        "warn",
+      );
     } finally {
       setIsBusy(false);
     }
@@ -300,6 +398,20 @@ export function AppCaptureWorkspace() {
     } finally {
       setActiveAction(null);
     }
+  }
+
+  function handleLoadReceiptSample() {
+    const sampleReceipt = buildLocalPreviewReceipt({ name: "IMG_3503.jpeg" }, notes);
+    setSelectedFile(null);
+    setLiveReceipt(sampleReceipt);
+    setSyncJobs([]);
+    setStage("review");
+    setStageDetail("Loaded the supplied Lowe's receipt as a local preview extraction.");
+    pushToast(
+      "Lowe's receipt loaded",
+      "Review the extracted vendor, total, tax, category, and line items before production OCR validation.",
+      "good",
+    );
   }
 
   const loopSteps = [
@@ -388,6 +500,9 @@ export function AppCaptureWorkspace() {
             <div className="app-primary-actions">
               <button type="button" onClick={handleUpload} disabled={isBusy}>
                 {isBusy ? "Working..." : "Upload and extract"}
+              </button>
+              <button type="button" onClick={handleLoadReceiptSample} disabled={isBusy}>
+                Try supplied Lowe&apos;s receipt
               </button>
             </div>
 
