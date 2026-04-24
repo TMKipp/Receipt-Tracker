@@ -118,36 +118,48 @@ function targetListLabel(targets: SyncTarget[]) {
   return "QuickBooks and Excel";
 }
 
-function buildLocalPreviewReceipt(file: { name: string }, notes: string): ApiReceipt {
-  const now = new Date().toISOString();
-  const finalPayload = {
-    merchantName: "Lowe's Home Centers, LLC",
-    transactionDate: "2025-12-31",
-    currency: "USD",
-    subtotal: "459.51",
-    tax: "33.31",
-    total: "492.82",
-    paymentMethod: "Visa",
-    categoryName: "Materials & Supplies",
-    notes: notes || "Lowe's construction materials and job-site supplies.",
-  };
+type LocalPreviewKind = "lowes" | "mountaineer-gas";
 
-  return {
-    id: `local-preview-${Date.now()}`,
-    status: "review_required",
-    source: "upload",
-    merchant_name: "Lowe's Home Centers, LLC",
-    receipt_number: "25594523",
-    transaction_date: "2025-12-31",
-    currency: "USD",
-    subtotal: "459.51",
-    tax: "33.31",
-    tip: null,
-    total: "492.82",
-    payment_method: "Visa",
-    category_id: null,
-    category_name: "Materials & Supplies",
-    line_items: [
+type LocalPreviewCase = {
+  category: string;
+  confidence: Record<string, number>;
+  date: string;
+  defaultNotes: string;
+  decisionSummary: string[];
+  displayName: string;
+  fileName: string;
+  lineItems: ApiReceipt["line_items"];
+  merchantName: string;
+  paymentMethod: string | null;
+  receiptNumber: string | null;
+  rawTextSummary: string;
+  subtotal: string | null;
+  tax: string | null;
+  total: string;
+  extraPayload?: Record<string, unknown>;
+};
+
+const LOCAL_PREVIEW_CASES: Record<LocalPreviewKind, LocalPreviewCase> = {
+  lowes: {
+    category: "Materials & Supplies",
+    confidence: {
+      vendor: 0.94,
+      date: 0.9,
+      total: 0.98,
+      category: 0.87,
+      paymentMethod: 0.88,
+    },
+    date: "2025-12-31",
+    defaultNotes: "Lowe's construction materials and job-site supplies.",
+    decisionSummary: [
+      "Local preview extraction from the supplied Lowe's receipt; production OCR still needs to validate it.",
+      "Subtotal $459.51 plus tax $33.31 reconciles to total $492.82.",
+      "Suggested Materials & Supplies because the line items are nails, adhesive, joist hangers, concrete, and job-site materials.",
+      "Manual review remains required because this did not run through the live OCR provider.",
+    ],
+    displayName: "Lowe's receipt",
+    fileName: "IMG_3503.jpeg",
+    lineItems: [
       { description: "PS 6-mil 10-ft x 100-ft plastic sheeting", quantity: "1", unit_price: "69.98", line_total: "69.98" },
       { description: "30-lb sinker nails, coated", quantity: "1", unit_price: "62.98", line_total: "62.98" },
       { description: "28 oz LN subfloor adhesive", quantity: "6", unit_price: "5.98", line_total: "35.88" },
@@ -156,41 +168,111 @@ function buildLocalPreviewReceipt(file: { name: string }, notes: string): ApiRec
       { description: "USG ZT joist hanger", quantity: "40", unit_price: "2.77", line_total: "110.80" },
       { description: "Quikrete 50-lb concrete mix", quantity: "15", unit_price: "3.73", line_total: "55.95" },
     ],
-    notes: notes || "Lowe's construction materials and job-site supplies.",
-    ocr_provider: "local-preview",
-    overall_confidence: "0.9100",
+    merchantName: "Lowe's Home Centers, LLC",
+    paymentMethod: "Visa",
+    receiptNumber: "25594523",
+    rawTextSummary: "Retail receipt with job-site material line items.",
+    subtotal: "459.51",
+    tax: "33.31",
+    total: "492.82",
+  },
+  "mountaineer-gas": {
+    category: "Utilities",
     confidence: {
-      vendor: 0.94,
+      vendor: 0.96,
       date: 0.9,
-      total: 0.98,
-      category: 0.87,
-      paymentMethod: 0.88,
+      dueDate: 0.94,
+      total: 0.99,
+      category: 0.93,
+      accountMask: 0.98,
     },
+    date: "2026-03-26",
+    defaultNotes: "Mountaineer Gas utility statement. Account details masked in preview.",
+    decisionSummary: [
+      "Local preview extraction from the supplied Mountaineer Gas statement; production OCR still needs to validate it.",
+      "Amount due $72.71 and due date April 15 were visible in the statement card.",
+      "Suggested Utilities because this is a gas utility statement rather than a retail receipt.",
+      "Account and document identifiers are masked in preview to avoid storing sensitive account details.",
+    ],
+    displayName: "Mountaineer Gas bill",
+    extraPayload: {
+      accountNumberMasked: "****5156",
+      documentType: "utility_statement",
+      dueDate: "2026-04-15",
+    },
+    fileName: "IMG_8391.PNG",
+    lineItems: [
+      { description: "Natural gas utility statement", quantity: "1", unit_price: "72.71", line_total: "72.71" },
+    ],
+    merchantName: "Mountaineer Gas",
+    paymentMethod: "Payment Processing",
+    receiptNumber: "statement-preview",
+    rawTextSummary: "Utility bill screenshot with amount due, due date, and masked account details.",
+    subtotal: null,
+    tax: null,
+    total: "72.71",
+  },
+};
+
+function sampleKindForFileName(fileName: string): LocalPreviewKind {
+  const normalized = fileName.toLowerCase();
+  if (normalized.includes("8391") || normalized.includes("mountaineer") || normalized.includes("gas")) {
+    return "mountaineer-gas";
+  }
+  return "lowes";
+}
+
+function buildLocalPreviewReceipt(kind: LocalPreviewKind, notes: string): ApiReceipt {
+  const now = new Date().toISOString();
+  const previewCase = LOCAL_PREVIEW_CASES[kind];
+  const finalPayload = {
+    merchantName: previewCase.merchantName,
+    transactionDate: previewCase.date,
+    currency: "USD",
+    subtotal: previewCase.subtotal,
+    tax: previewCase.tax,
+    total: previewCase.total,
+    paymentMethod: previewCase.paymentMethod,
+    categoryName: previewCase.category,
+    notes: notes || previewCase.defaultNotes,
+    ...previewCase.extraPayload,
+  };
+
+  return {
+    id: `local-preview-${Date.now()}`,
+    status: "review_required",
+    source: "upload",
+    merchant_name: previewCase.merchantName,
+    receipt_number: previewCase.receiptNumber,
+    transaction_date: previewCase.date,
+    currency: "USD",
+    subtotal: previewCase.subtotal,
+    tax: previewCase.tax,
+    tip: null,
+    total: previewCase.total,
+    payment_method: previewCase.paymentMethod,
+    category_id: null,
+    category_name: previewCase.category,
+    line_items: previewCase.lineItems,
+    notes: notes || previewCase.defaultNotes,
+    ocr_provider: "local-preview",
+    overall_confidence: kind === "mountaineer-gas" ? "0.9300" : "0.9100",
+    confidence: previewCase.confidence,
     payload_layers: {
-      raw_ocr_text: `Local preview extraction for ${file.name}. Backend OCR was not contacted.`,
+      raw_ocr_text: `Local preview extraction for ${previewCase.fileName}. ${previewCase.rawTextSummary} Backend OCR was not contacted.`,
       ocr_payload: {
         provider: "local-preview",
-        fileName: file.name,
+        fileName: previewCase.fileName,
       },
       normalized_payload: {
         ...finalPayload,
         provider: "local-preview",
-        decisionSummary: [
-          "Local preview extraction from the supplied Lowe's receipt; production OCR still needs to validate it.",
-          "Subtotal $459.51 plus tax $33.31 reconciles to total $492.82.",
-          "Suggested Materials & Supplies because the line items are nails, adhesive, joist hangers, concrete, and job-site materials.",
-          "Manual review remains required because this did not run through the live OCR provider.",
-        ],
+        decisionSummary: previewCase.decisionSummary,
       },
       final_payload: finalPayload,
     },
     decision: {
-      decision_summary: [
-        "Local preview extraction from the supplied Lowe's receipt; production OCR still needs to validate it.",
-        "Subtotal $459.51 plus tax $33.31 reconciles to total $492.82.",
-        "Suggested Materials & Supplies because the line items are nails, adhesive, joist hangers, concrete, and job-site materials.",
-        "Manual review remains required because this did not run through the live OCR provider.",
-      ],
+      decision_summary: previewCase.decisionSummary,
       duplicate_of_receipt_id: null,
       auto_approved: false,
       needs_review: true,
@@ -337,14 +419,15 @@ export function AppCaptureWorkspace() {
       );
       pushToast("Receipt uploaded", "The receipt is ready for review.", "good");
     } catch (error) {
-      const fallbackReceipt = buildLocalPreviewReceipt(selectedFile, notes);
+      const previewKind = sampleKindForFileName(selectedFile.name);
+      const fallbackReceipt = buildLocalPreviewReceipt(previewKind, notes);
       setLiveReceipt(fallbackReceipt);
       setSyncJobs([]);
       setStage("review");
       setStageDetail("Backend is offline, so this is a local preview extraction for review testing.");
       pushToast(
         "Local preview extraction loaded",
-        "The backend was not reachable, so the supplied Lowe's receipt was parsed as a review-mode test case.",
+        `The backend was not reachable, so the ${LOCAL_PREVIEW_CASES[previewKind].displayName} was parsed as a review-mode test case.`,
         "warn",
       );
     } finally {
@@ -400,15 +483,16 @@ export function AppCaptureWorkspace() {
     }
   }
 
-  function handleLoadReceiptSample() {
-    const sampleReceipt = buildLocalPreviewReceipt({ name: "IMG_3503.jpeg" }, notes);
+  function handleLoadReceiptSample(kind: LocalPreviewKind) {
+    const previewCase = LOCAL_PREVIEW_CASES[kind];
+    const sampleReceipt = buildLocalPreviewReceipt(kind, notes);
     setSelectedFile(null);
     setLiveReceipt(sampleReceipt);
     setSyncJobs([]);
     setStage("review");
-    setStageDetail("Loaded the supplied Lowe's receipt as a local preview extraction.");
+    setStageDetail(`Loaded the supplied ${previewCase.displayName} as a local preview extraction.`);
     pushToast(
-      "Lowe's receipt loaded",
+      `${previewCase.displayName} loaded`,
       "Review the extracted vendor, total, tax, category, and line items before production OCR validation.",
       "good",
     );
@@ -501,8 +585,11 @@ export function AppCaptureWorkspace() {
               <button type="button" onClick={handleUpload} disabled={isBusy}>
                 {isBusy ? "Working..." : "Upload and extract"}
               </button>
-              <button type="button" onClick={handleLoadReceiptSample} disabled={isBusy}>
-                Try supplied Lowe&apos;s receipt
+              <button type="button" onClick={() => handleLoadReceiptSample("lowes")} disabled={isBusy}>
+                Try Lowe&apos;s receipt
+              </button>
+              <button type="button" onClick={() => handleLoadReceiptSample("mountaineer-gas")} disabled={isBusy}>
+                Try utility bill
               </button>
             </div>
 
