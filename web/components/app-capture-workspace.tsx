@@ -23,6 +23,19 @@ import { getDefaultDemoIdentity } from "@/lib/demo-identity";
 
 type CaptureStage = "ready" | "uploading" | "processing" | "review" | "error";
 type SyncTarget = "quickbooks" | "excel";
+type GateTone = "good" | "warn" | "bad" | "neutral";
+
+type ApprovalCheck = {
+  label: string;
+  detail: string;
+  tone: GateTone;
+};
+
+type NextAction = {
+  title: string;
+  detail: string;
+  tone: GateTone;
+};
 
 const defaultDemoIdentity = getDefaultDemoIdentity();
 
@@ -97,6 +110,31 @@ function confidenceLabel(receipt: ApiReceipt | null) {
   return `${Math.round(numeric * 100)}%`;
 }
 
+function confidenceValue(receipt: ApiReceipt | null, key: string) {
+  const value = receipt?.confidence?.[key];
+  return typeof value === "number" ? value : null;
+}
+
+function confidencePercent(value: number | null) {
+  if (value === null) {
+    return "not scored";
+  }
+  return `${Math.round(value * 100)}%`;
+}
+
+function gateToneClass(tone: GateTone) {
+  switch (tone) {
+    case "good":
+      return "status-good";
+    case "warn":
+      return "status-warn";
+    case "bad":
+      return "status-bad";
+    default:
+      return "status-neutral";
+  }
+}
+
 function buildReadyTargets(quickbooksReady: boolean, excelReady: boolean): SyncTarget[] {
   const targets: SyncTarget[] = [];
   if (quickbooksReady) targets.push("quickbooks");
@@ -116,6 +154,145 @@ function targetListLabel(targets: SyncTarget[]) {
     return targetLabel(targets[0]);
   }
   return "QuickBooks and Excel";
+}
+
+function buildNextAction(stage: CaptureStage, receipt: ApiReceipt | null, readyTargets: SyncTarget[]): NextAction {
+  if (stage === "uploading") {
+    return {
+      title: "Uploading the source image",
+      detail: "Keep this window open while the receipt moves into protected storage.",
+      tone: "neutral",
+    };
+  }
+
+  if (stage === "processing") {
+    return {
+      title: "Extracting fields",
+      detail: "OCR is reading the receipt and building the review payload.",
+      tone: "neutral",
+    };
+  }
+
+  if (!receipt) {
+    return {
+      title: "Start with one receipt",
+      detail: "Choose a photo, PDF, or one of the sample documents to see the full review loop.",
+      tone: "neutral",
+    };
+  }
+
+  if (receipt.status === "failed") {
+    return {
+      title: "Fix extraction before approval",
+      detail: receipt.processing_error || "This receipt needs a retry or manual correction before it can sync.",
+      tone: "bad",
+    };
+  }
+
+  if (receipt.status === "review_required") {
+    return readyTargets.length > 0
+      ? {
+          title: "Review, then approve and sync",
+          detail: `Check the approval gates below, then send the clean payload to ${targetListLabel(readyTargets)}.`,
+          tone: "good",
+        }
+      : {
+          title: "Review and approve first",
+          detail: "The receipt can be approved now. Connect QuickBooks or Excel when you are ready to post it.",
+          tone: "warn",
+        };
+  }
+
+  if (receipt.approved_at && readyTargets.length > 0) {
+    return {
+      title: "Approved receipt is ready to post",
+      detail: `Send it to ${targetListLabel(readyTargets)} or keep it in the receipt vault.`,
+      tone: "good",
+    };
+  }
+
+  if (receipt.approved_at) {
+    return {
+      title: "Approved and stored",
+      detail: "Connect QuickBooks or Excel to sync this approved receipt from the vault.",
+      tone: "warn",
+    };
+  }
+
+  return {
+    title: "Receipt is in progress",
+    detail: "Follow the highlighted step to move it forward.",
+    tone: "neutral",
+  };
+}
+
+function buildApprovalChecks(receipt: ApiReceipt | null, readyTargets: SyncTarget[]): ApprovalCheck[] {
+  if (!receipt) {
+    return [
+      {
+        label: "Core fields",
+        detail: "Waiting for vendor, date, total, and category.",
+        tone: "neutral",
+      },
+      {
+        label: "Sync path",
+        detail: "Connect QuickBooks or Excel before posting.",
+        tone: "neutral",
+      },
+    ];
+  }
+
+  const vendorConfidence = confidenceValue(receipt, "vendor");
+  const dateConfidence = confidenceValue(receipt, "date");
+  const totalConfidence = confidenceValue(receipt, "total");
+  const categoryConfidence = confidenceValue(receipt, "category");
+  const criticalFieldsReady = Boolean(receipt.merchant_name && receipt.transaction_date && receipt.total && receipt.category_name);
+  const criticalConfidenceReady = [vendorConfidence, dateConfidence, totalConfidence, categoryConfidence].every(
+    (value) => value === null || value >= 0.85,
+  );
+  const criticalScores = [vendorConfidence, dateConfidence, totalConfidence, categoryConfidence].filter(
+    (value): value is number => value !== null,
+  );
+  const lowestCriticalScore = criticalScores.length ? Math.min(...criticalScores) : null;
+
+  const subtotal = Number(receipt.subtotal);
+  const tax = Number(receipt.tax);
+  const total = Number(receipt.total);
+  const hasMathParts = !Number.isNaN(subtotal) && !Number.isNaN(tax) && !Number.isNaN(total);
+  const mathReconciles = hasMathParts ? Math.abs(subtotal + tax - total) <= 0.01 : Boolean(receipt.total);
+
+  return [
+    {
+      label: "Core fields",
+      detail: criticalFieldsReady
+        ? `Vendor/date/total/category present. Lowest confidence: ${confidencePercent(lowestCriticalScore)}.`
+        : "Vendor, date, total, or category is missing.",
+      tone: criticalFieldsReady && criticalConfidenceReady ? "good" : "warn",
+    },
+    {
+      label: "Math check",
+      detail: hasMathParts
+        ? mathReconciles
+          ? "Subtotal plus tax matches the total within $0.01."
+          : "Subtotal, tax, and total do not reconcile yet."
+        : "Statement amount captured; no subtotal/tax breakdown was detected.",
+      tone: mathReconciles ? "good" : "bad",
+    },
+    {
+      label: "Duplicate check",
+      detail: receipt.decision.duplicate_of_receipt_id
+        ? `Possible duplicate of ${receipt.decision.duplicate_of_receipt_id}.`
+        : "No duplicate was flagged for this receipt.",
+      tone: receipt.decision.duplicate_of_receipt_id ? "warn" : "good",
+    },
+    {
+      label: "Sync path",
+      detail: readyTargets.length
+        ? `${targetListLabel(readyTargets)} ${readyTargets.length === 1 ? "is" : "are"} ready after approval.`
+        : "Approval is available, but QuickBooks and Excel are not connected yet.",
+      tone: readyTargets.length ? "good" : "warn",
+    },
+  ];
 }
 
 type LocalPreviewKind = "lowes" | "mountaineer-gas";
@@ -311,6 +488,8 @@ export function AppCaptureWorkspace() {
   const lastExcelJob = syncJobs.find((job) => job.target === "excel");
   const hasSuccessfulSync =
     liveReceipt?.sync_targets.quickbooks === "synced" || liveReceipt?.sync_targets.excel === "synced";
+  const nextAction = buildNextAction(stage, liveReceipt, readyTargets);
+  const approvalChecks = buildApprovalChecks(liveReceipt, readyTargets);
 
   async function refreshReceiptAndJobs(receiptId: string) {
     const [detail, jobs] = await Promise.all([
@@ -559,6 +738,15 @@ export function AppCaptureWorkspace() {
           </article>
         </div>
 
+        <section className={`app-next-action-banner app-next-action-${nextAction.tone}`} aria-live="polite">
+          <div>
+            <span className="pane-label">Next best action</span>
+            <h3>{nextAction.title}</h3>
+            <p>{nextAction.detail}</p>
+          </div>
+          <strong className={`status-pill ${gateToneClass(nextAction.tone)}`}>{stageLabel(stage)}</strong>
+        </section>
+
         <div className="app-capture-simple-grid app-capture-simple-grid-tight">
           <section className="app-review-card app-capture-upload-card">
             <span className="pane-label">Add image</span>
@@ -585,11 +773,18 @@ export function AppCaptureWorkspace() {
               <button type="button" onClick={handleUpload} disabled={isBusy}>
                 {isBusy ? "Working..." : "Upload and extract"}
               </button>
+            </div>
+
+            <div className="app-sample-lab" aria-label="Receipt sample lab">
+              <div>
+                <span className="pane-label">Test the process</span>
+                <p>Use real-world sample shapes before live OCR: retail receipt and bill statement.</p>
+              </div>
               <button type="button" onClick={() => handleLoadReceiptSample("lowes")} disabled={isBusy}>
-                Try Lowe&apos;s receipt
+                Lowe&apos;s receipt
               </button>
               <button type="button" onClick={() => handleLoadReceiptSample("mountaineer-gas")} disabled={isBusy}>
-                Try utility bill
+                Utility bill
               </button>
             </div>
 
@@ -624,6 +819,26 @@ export function AppCaptureWorkspace() {
               <div>
                 <span>Confidence</span>
                 <strong>{confidenceLabel(liveReceipt)}</strong>
+              </div>
+            </div>
+
+            <div className="app-approval-gate" aria-label="Approval readiness checks">
+              <div className="app-approval-gate-header">
+                <div>
+                  <span className="pane-label">Approval gate</span>
+                  <h4>{liveReceipt ? "Safe-to-sync checklist" : "Waiting for extraction"}</h4>
+                </div>
+                <strong className={`status-pill ${liveReceipt ? "status-good" : "status-neutral"}`}>
+                  {liveReceipt ? `${approvalChecks.filter((check) => check.tone === "good").length}/${approvalChecks.length} ready` : "Pending"}
+                </strong>
+              </div>
+              <div className="app-approval-check-grid">
+                {approvalChecks.map((check) => (
+                  <article key={check.label} className={`app-approval-check app-approval-check-${check.tone}`}>
+                    <strong>{check.label}</strong>
+                    <p>{check.detail}</p>
+                  </article>
+                ))}
               </div>
             </div>
 
