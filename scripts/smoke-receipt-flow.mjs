@@ -44,6 +44,31 @@ function guessMimeType(filePath) {
   return "image/jpeg";
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function snakeCaseKey(value) {
+  return value
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
+}
+
+function normalizeApiPayload(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeApiPayload(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [snakeCaseKey(key), normalizeApiPayload(entry)]),
+  );
+}
+
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -59,7 +84,24 @@ async function requestJson(url, options = {}) {
     throw new Error(`${options.method || "GET"} ${url} failed: ${detail}`);
   }
 
-  return payload;
+  return normalizeApiPayload(payload);
+}
+
+async function waitForProcessing(args, receiptId) {
+  const headers = {
+    "X-Demo-User-Email": args.demoEmail,
+    "X-Demo-User-Name": args.demoName,
+  };
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const status = await requestJson(`${args.backend}/receipts/${receiptId}/processing-status`, { headers });
+    if (!["uploaded", "processing"].includes(status.status)) {
+      return status;
+    }
+    await sleep(900);
+  }
+
+  return requestJson(`${args.backend}/receipts/${receiptId}/processing-status`, { headers });
 }
 
 async function main() {
@@ -116,6 +158,8 @@ async function main() {
     }),
   });
 
+  const processingStatus = await waitForProcessing(args, createdReceipt.id);
+
   let receipt = await requestJson(`${args.backend}/receipts/${createdReceipt.id}`, {
     headers: {
       "X-Demo-User-Email": args.demoEmail,
@@ -134,15 +178,24 @@ async function main() {
     });
   }
 
+  const syncJobs = await requestJson(`${args.backend}/receipts/${createdReceipt.id}/sync-jobs`, {
+    headers: {
+      "X-Demo-User-Email": args.demoEmail,
+      "X-Demo-User-Name": args.demoName,
+    },
+  });
+
   const summary = {
     receiptId: receipt.id,
     status: receipt.status,
+    processingStatus,
     merchantName: receipt.merchant_name,
     categoryName: receipt.category_name,
     total: receipt.total,
     overallConfidence: receipt.overall_confidence,
     decisionSummary: receipt.decision?.decision_summary || [],
     syncTargets: receipt.sync_targets || null,
+    syncJobs: syncJobs.data || [],
     processingError: receipt.processing_error,
   };
 

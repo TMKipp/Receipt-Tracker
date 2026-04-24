@@ -5101,6 +5101,113 @@ input {
   gap: 10px;
 }
 
+.app-flow-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.app-flow-step {
+  position: relative;
+  min-height: 86px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  overflow: hidden;
+  border-radius: 20px;
+  border: 1px solid rgba(19, 33, 25, 0.08);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.app-flow-step::after {
+  content: "";
+  position: absolute;
+  inset: auto 14px 12px 14px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(19, 33, 25, 0.1);
+}
+
+.app-flow-step.is-active {
+  border-color: rgba(184, 109, 42, 0.22);
+  background:
+    linear-gradient(145deg, rgba(255, 246, 234, 0.96), rgba(255, 255, 255, 0.7)),
+    rgba(255, 255, 255, 0.58);
+}
+
+.app-flow-step.is-active::after {
+  background: rgba(184, 109, 42, 0.58);
+}
+
+.app-flow-step.is-done {
+  border-color: rgba(28, 107, 79, 0.16);
+  background:
+    linear-gradient(145deg, rgba(236, 247, 240, 0.96), rgba(255, 255, 255, 0.7)),
+    rgba(255, 255, 255, 0.58);
+}
+
+.app-flow-step.is-done::after {
+  background: rgba(28, 107, 79, 0.72);
+}
+
+.app-flow-step span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.app-flow-step strong {
+  padding-bottom: 14px;
+  line-height: 1.15;
+}
+
+.app-sync-proof-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(19, 33, 25, 0.07);
+  background:
+    linear-gradient(145deg, rgba(255, 252, 246, 0.96), rgba(240, 246, 242, 0.78)),
+    rgba(255, 255, 255, 0.72);
+}
+
+.app-sync-proof-panel h3 {
+  margin: 8px 0 6px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 1.35rem;
+  line-height: 1.04;
+}
+
+.app-sync-proof-panel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.56;
+}
+
+.app-sync-proof-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.app-sync-proof-grid article {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(19, 33, 25, 0.07);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.app-sync-proof-grid article > span {
+  color: var(--muted);
+}
+
 .app-compact-status-card,
 .app-setup-step-card,
 .app-side-status-list article {
@@ -5165,6 +5272,8 @@ input {
   .app-review-focus-grid,
   .app-inbox-meta,
   .app-compact-status-row,
+  .app-flow-stepper,
+  .app-sync-proof-grid,
   .app-report-panels,
   .app-setup-progress {
     grid-template-columns: 1fr;

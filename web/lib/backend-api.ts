@@ -6,6 +6,20 @@ export type ReceiptSyncState =
   | "synced"
   | "failed";
 
+export type ReceiptSyncJob = {
+  id: string;
+  target: "quickbooks" | "excel";
+  status: string;
+  attempts: number;
+  external_object_id: string | null;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  scheduled_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  updated_at: string;
+};
+
 export type ApiReceipt = {
   id: string;
   status: string;
@@ -47,6 +61,7 @@ export type ApiReceipt = {
     quickbooks: ReceiptSyncState;
     excel: ReceiptSyncState;
   };
+  sync_jobs: ReceiptSyncJob[];
   processed_at: string | null;
   approved_at: string | null;
   auto_approved_at: string | null;
@@ -154,6 +169,10 @@ export type ReceiptProcessingStatusResponse = {
   overall_confidence: string | null;
 };
 
+export type ReceiptSyncJobListResponse = {
+  data: ReceiptSyncJob[];
+};
+
 export type MicrosoftWorkbookCandidate = {
   drive_id: string;
   item_id: string;
@@ -205,6 +224,27 @@ function demoHeaders(identity: DemoIdentity) {
   };
 }
 
+function snakeCaseKey(value: string) {
+  return value
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1_$2")
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase();
+}
+
+function normalizeApiPayload(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeApiPayload(item));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [snakeCaseKey(key), normalizeApiPayload(entry)]),
+  );
+}
+
 async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(url, options);
   const text = await response.text();
@@ -224,7 +264,7 @@ async function requestJson<T>(url: string, options: RequestInit = {}): Promise<T
     throw new Error(detail);
   }
 
-  return payload as T;
+  return normalizeApiPayload(payload) as T;
 }
 
 function jsonOptions(identity: DemoIdentity, method: string, body?: unknown): RequestInit {
@@ -283,13 +323,17 @@ export async function retryReceiptProcessing(identity: DemoIdentity, receiptId: 
   return requestJson(url, jsonOptions(identity, "POST"));
 }
 
-export async function approveReceipt(identity: DemoIdentity, receiptId: string) {
+export async function approveReceipt(
+  identity: DemoIdentity,
+  receiptId: string,
+  syncAfterApproval: Array<"quickbooks" | "excel"> = [],
+) {
   const url = `${normalizedBaseUrl(identity.backendUrl)}/receipts/${receiptId}/approve`;
   return requestJson<ApiReceipt>(
     url,
     jsonOptions(identity, "POST", {
       approved: true,
-      sync_after_approval: [],
+      sync_after_approval: syncAfterApproval,
     }),
   );
 }
@@ -319,6 +363,20 @@ export async function getMonthlySpend(identity: DemoIdentity) {
 export async function getIntegrationHealth(identity: DemoIdentity) {
   const url = `${normalizedBaseUrl(identity.backendUrl)}/integrations/health`;
   return requestJson<IntegrationHealthResponse>(url, {
+    headers: demoHeaders(identity),
+  });
+}
+
+export async function getReceiptProcessingStatus(identity: DemoIdentity, receiptId: string) {
+  const url = `${normalizedBaseUrl(identity.backendUrl)}/receipts/${receiptId}/processing-status`;
+  return requestJson<ReceiptProcessingStatusResponse>(url, {
+    headers: demoHeaders(identity),
+  });
+}
+
+export async function getReceiptSyncJobs(identity: DemoIdentity, receiptId: string) {
+  const url = `${normalizedBaseUrl(identity.backendUrl)}/receipts/${receiptId}/sync-jobs`;
+  return requestJson<ReceiptSyncJobListResponse>(url, {
     headers: demoHeaders(identity),
   });
 }

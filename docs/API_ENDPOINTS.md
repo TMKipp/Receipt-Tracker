@@ -21,9 +21,12 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - `GET /receipts`
 - `GET /receipts/{receiptId}`
 - `PATCH /receipts/{receiptId}`
+- `POST /receipts/{receiptId}/upload-complete`
+- `GET /receipts/{receiptId}/processing-status`
 - `POST /receipts/{receiptId}/approve`
 - `POST /receipts/{receiptId}/retry-processing`
 - `POST /receipts/{receiptId}/sync`
+- `GET /receipts/{receiptId}/sync-jobs`
 
 ## Categories and Vendors
 
@@ -38,6 +41,9 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - `POST /integrations/microsoft/connect-url`
 - `POST /integrations/microsoft/callback`
 - `GET /integrations/microsoft/status`
+- `GET /integrations/microsoft/workbooks`
+- `GET /integrations/microsoft/workbook-tables`
+- `GET /integrations/health`
 
 ## Reporting
 
@@ -49,4 +55,3 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - Approval is explicit because sync should operate on user-approved values, not raw OCR guesses.
 - Sync is target-based so one receipt can sync to QuickBooks, Excel, both, or neither.
 - Connect callbacks are modeled as POST handlers so mobile or web clients can exchange provider codes through the backend without exposing secrets client-side.
-

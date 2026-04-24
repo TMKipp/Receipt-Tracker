@@ -7,11 +7,14 @@ import { ActionToastStack, type ActionToast } from "@/components/action-toast-st
 import { MobileAppPreview } from "@/components/mobile-app-preview";
 import {
   type ApiReceipt,
+  type ReceiptSyncJob,
   approveReceipt,
   completeReceiptUpload,
   createReceiptRecord,
   getReceipt,
   getIntegrationHealth,
+  getReceiptProcessingStatus,
+  getReceiptSyncJobs,
   presignReceiptUpload,
   syncReceipt,
   uploadReceiptBinary,
@@ -19,6 +22,7 @@ import {
 import { getDefaultDemoIdentity } from "@/lib/demo-identity";
 
 type CaptureStage = "ready" | "uploading" | "processing" | "review" | "error";
+type SyncTarget = "quickbooks" | "excel";
 
 const defaultDemoIdentity = getDefaultDemoIdentity();
 
@@ -58,12 +62,69 @@ function receiptStatusLabel(status: string | null | undefined) {
   return status.replace(/_/g, " ");
 }
 
+function syncStatusLabel(status: string | null | undefined) {
+  if (!status) {
+    return "Not requested";
+  }
+  return status.replace(/_/g, " ");
+}
+
+function syncStatusTone(status: string | null | undefined) {
+  switch (status) {
+    case "succeeded":
+    case "synced":
+      return "status-good";
+    case "failed":
+    case "needs_reauth":
+      return "status-bad";
+    case "queued":
+    case "running":
+    case "syncing":
+      return "status-warn";
+    default:
+      return "status-neutral";
+  }
+}
+
+function confidenceLabel(receipt: ApiReceipt | null) {
+  if (!receipt?.overall_confidence) {
+    return "Pending";
+  }
+  const numeric = Number(receipt.overall_confidence);
+  if (Number.isNaN(numeric)) {
+    return receipt.overall_confidence;
+  }
+  return `${Math.round(numeric * 100)}%`;
+}
+
+function buildReadyTargets(quickbooksReady: boolean, excelReady: boolean): SyncTarget[] {
+  const targets: SyncTarget[] = [];
+  if (quickbooksReady) targets.push("quickbooks");
+  if (excelReady) targets.push("excel");
+  return targets;
+}
+
+function targetLabel(target: SyncTarget) {
+  return target === "quickbooks" ? "QuickBooks" : "Excel";
+}
+
+function targetListLabel(targets: SyncTarget[]) {
+  if (targets.length === 0) {
+    return "no connected systems";
+  }
+  if (targets.length === 1) {
+    return targetLabel(targets[0]);
+  }
+  return "QuickBooks and Excel";
+}
+
 export function AppCaptureWorkspace() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [notes, setNotes] = useState("");
   const [stage, setStage] = useState<CaptureStage>("ready");
   const [stageDetail, setStageDetail] = useState("Choose a receipt image or PDF to start.");
   const [liveReceipt, setLiveReceipt] = useState<ApiReceipt | null>(null);
+  const [syncJobs, setSyncJobs] = useState<ReceiptSyncJob[]>([]);
   const [toasts, setToasts] = useState<ActionToast[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [integrationHealth, setIntegrationHealth] = useState<Awaited<ReturnType<typeof getIntegrationHealth>> | null>(null);
@@ -72,6 +133,32 @@ export function AppCaptureWorkspace() {
 
   const quickbooksReady = integrationHealth?.sync_ready_targets.includes("quickbooks") ?? false;
   const excelReady = integrationHealth?.sync_ready_targets.includes("excel") ?? false;
+  const readyTargets = buildReadyTargets(quickbooksReady, excelReady);
+  const lastQuickBooksJob = syncJobs.find((job) => job.target === "quickbooks");
+  const lastExcelJob = syncJobs.find((job) => job.target === "excel");
+  const hasSuccessfulSync =
+    liveReceipt?.sync_targets.quickbooks === "synced" || liveReceipt?.sync_targets.excel === "synced";
+
+  async function refreshReceiptAndJobs(receiptId: string) {
+    const [detail, jobs] = await Promise.all([
+      getReceipt(defaultDemoIdentity, receiptId),
+      getReceiptSyncJobs(defaultDemoIdentity, receiptId).catch(() => ({ data: [] })),
+    ]);
+    setLiveReceipt(detail);
+    setSyncJobs(jobs.data);
+    return detail;
+  }
+
+  async function waitForProcessing(receiptId: string) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const status = await getReceiptProcessingStatus(defaultDemoIdentity, receiptId);
+      if (!["uploaded", "processing"].includes(status.status)) {
+        return status;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 900));
+    }
+    return getReceiptProcessingStatus(defaultDemoIdentity, receiptId);
+  }
 
   function dismissToast(id: string) {
     setToasts((current) => current.filter((toast) => toast.id !== id));
@@ -119,6 +206,7 @@ export function AppCaptureWorkspace() {
 
     setIsBusy(true);
     setLiveReceipt(null);
+    setSyncJobs([]);
     setStage("uploading");
     setStageDetail("Uploading the receipt into protected storage.");
 
@@ -145,11 +233,11 @@ export function AppCaptureWorkspace() {
       await completeReceiptUpload(defaultDemoIdentity, createdReceipt.id, {
         fileSizeBytes: selectedFile.size,
       });
+      await waitForProcessing(createdReceipt.id);
 
-      const detail = await getReceipt(defaultDemoIdentity, createdReceipt.id);
+      const detail = await refreshReceiptAndJobs(createdReceipt.id);
       const nextHealth = await getIntegrationHealth(defaultDemoIdentity).catch(() => integrationHealth);
       setIntegrationHealth(nextHealth ?? integrationHealth);
-      setLiveReceipt(detail);
       setStage(detail.status === "failed" ? "error" : "review");
       setStageDetail(
         detail.status === "failed"
@@ -166,17 +254,27 @@ export function AppCaptureWorkspace() {
     }
   }
 
-  async function handleApprove() {
+  async function handleApprove(syncAfterApproval: SyncTarget[] = []) {
     if (!liveReceipt) {
       return;
     }
-    setActiveAction("approve");
+    setActiveAction(syncAfterApproval.length > 0 ? "approve-sync" : "approve");
     try {
-      const updated = await approveReceipt(defaultDemoIdentity, liveReceipt.id);
-      setLiveReceipt(updated);
+      const updated = await approveReceipt(defaultDemoIdentity, liveReceipt.id, syncAfterApproval);
+      await refreshReceiptAndJobs(updated.id);
       setStage("review");
-      setStageDetail("The receipt is approved and ready to sync.");
-      pushToast("Receipt approved", "The approved payload is ready for QuickBooks and Excel.", "good");
+      setStageDetail(
+        syncAfterApproval.length > 0
+          ? `Approved and queued for ${targetListLabel(syncAfterApproval)}.`
+          : "The receipt is approved and ready to sync.",
+      );
+      pushToast(
+        syncAfterApproval.length > 0 ? "Receipt approved and queued" : "Receipt approved",
+        syncAfterApproval.length > 0
+          ? `The approved payload is moving to ${targetListLabel(syncAfterApproval)}.`
+          : "The approved payload is ready for QuickBooks and Excel.",
+        "good",
+      );
     } catch (error) {
       pushToast("Approval failed", error instanceof Error ? error.message : "The receipt could not be approved.", "warn");
     } finally {
@@ -184,15 +282,14 @@ export function AppCaptureWorkspace() {
     }
   }
 
-  async function handleSync(targets: Array<"quickbooks" | "excel">) {
+  async function handleSync(targets: SyncTarget[]) {
     if (!liveReceipt) {
       return;
     }
     setActiveAction(`sync:${targets.join("-")}`);
     try {
       await syncReceipt(defaultDemoIdentity, liveReceipt.id, targets);
-      const updated = await getReceipt(defaultDemoIdentity, liveReceipt.id);
-      setLiveReceipt(updated);
+      await refreshReceiptAndJobs(liveReceipt.id);
       pushToast(
         targets.length === 2 ? "Sent to both systems" : `Sent to ${targets[0] === "quickbooks" ? "QuickBooks" : "Excel"}`,
         "The sync request has been queued using the approved receipt.",
@@ -204,6 +301,29 @@ export function AppCaptureWorkspace() {
       setActiveAction(null);
     }
   }
+
+  const loopSteps = [
+    {
+      label: "1. Add",
+      detail: selectedFile ? "Receipt selected" : "Choose image",
+      state: selectedFile || liveReceipt ? "done" : "active",
+    },
+    {
+      label: "2. Extract",
+      detail: liveReceipt ? `${confidenceLabel(liveReceipt)} confidence` : stage === "processing" ? "Running OCR" : "Waiting",
+      state: liveReceipt ? "done" : stage === "uploading" || stage === "processing" ? "active" : "todo",
+    },
+    {
+      label: "3. Approve",
+      detail: liveReceipt?.approved_at ? "Approved" : liveReceipt ? "Needs review" : "Waiting",
+      state: liveReceipt?.approved_at ? "done" : liveReceipt ? "active" : "todo",
+    },
+    {
+      label: "4. Sync",
+      detail: hasSuccessfulSync ? "Posted" : readyTargets.length ? targetListLabel(readyTargets) : "Connect systems",
+      state: hasSuccessfulSync ? "done" : liveReceipt?.approved_at ? "active" : "todo",
+    },
+  ];
 
   return (
     <div className="app-workspace-grid app-workspace-grid-capture">
@@ -217,6 +337,15 @@ export function AppCaptureWorkspace() {
           <span className={`status-pill ${stage === "error" ? "status-warn" : stage === "review" ? "status-good" : "status-neutral"}`}>
             {stageLabel(stage)}
           </span>
+        </div>
+
+        <div className="app-flow-stepper" aria-label="Receipt processing steps">
+          {loopSteps.map((step) => (
+            <article key={step.label} className={`app-flow-step is-${step.state}`}>
+              <span>{step.label}</span>
+              <strong>{step.detail}</strong>
+            </article>
+          ))}
         </div>
 
         <div className="app-compact-status-row">
@@ -290,13 +419,30 @@ export function AppCaptureWorkspace() {
                 <span>Category</span>
                 <strong>{liveReceipt?.category_name || "Needs review"}</strong>
               </div>
+              <div>
+                <span>Confidence</span>
+                <strong>{confidenceLabel(liveReceipt)}</strong>
+              </div>
             </div>
 
             {liveReceipt ? (
               <div className="app-primary-actions app-primary-actions-bar">
                 {liveReceipt.status === "review_required" ? (
-                  <button type="button" onClick={handleApprove} disabled={activeAction === "approve"}>
-                    {activeAction === "approve" ? "Approving..." : "Approve receipt"}
+                  <button
+                    type="button"
+                    onClick={() => handleApprove(readyTargets)}
+                    disabled={activeAction === "approve-sync" || activeAction === "approve"}
+                  >
+                    {activeAction === "approve-sync" || activeAction === "approve"
+                      ? "Approving..."
+                      : readyTargets.length > 0
+                        ? `Approve and sync to ${targetListLabel(readyTargets)}`
+                        : "Approve receipt"}
+                  </button>
+                ) : null}
+                {liveReceipt.status === "review_required" && readyTargets.length > 0 ? (
+                  <button type="button" onClick={() => handleApprove()} disabled={activeAction === "approve"}>
+                    Approve only
                   </button>
                 ) : null}
                 {liveReceipt.approved_at && quickbooksReady ? (
@@ -344,6 +490,40 @@ export function AppCaptureWorkspace() {
                   <p>{liveReceipt.processing_error}</p>
                 </article>
               ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {liveReceipt ? (
+          <section className="app-sync-proof-panel">
+            <div>
+              <span className="pane-label">Sync proof</span>
+              <h3>Every post has a job record and a recovery path.</h3>
+              <p>
+                If QuickBooks or Excel rejects a receipt, this panel shows the target, attempts, and exact message to
+                recover from.
+              </p>
+            </div>
+            <div className="app-sync-proof-grid">
+              <article>
+                <span>QuickBooks</span>
+                <strong className={`status-pill ${syncStatusTone(lastQuickBooksJob?.status ?? liveReceipt.sync_targets.quickbooks)}`}>
+                  {syncStatusLabel(lastQuickBooksJob?.status ?? liveReceipt.sync_targets.quickbooks)}
+                </strong>
+                <p>{lastQuickBooksJob?.last_error_message || "Creates an approved expense when connected."}</p>
+              </article>
+              <article>
+                <span>Excel</span>
+                <strong className={`status-pill ${syncStatusTone(lastExcelJob?.status ?? liveReceipt.sync_targets.excel)}`}>
+                  {syncStatusLabel(lastExcelJob?.status ?? liveReceipt.sync_targets.excel)}
+                </strong>
+                <p>{lastExcelJob?.last_error_message || "Appends the approved fields to the pinned workbook table."}</p>
+              </article>
+              <article>
+                <span>Jobs</span>
+                <strong>{syncJobs.length}</strong>
+                <p>{syncJobs.length ? "Latest jobs are loaded from the backend." : "No sync has been requested yet."}</p>
+              </article>
             </div>
           </section>
         ) : null}
