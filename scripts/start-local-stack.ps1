@@ -11,10 +11,11 @@ if (-not (Test-Path $envFile)) {
 Push-Location $workspaceRoot
 
 try {
-  docker compose up --build -d postgres redis backend
+  docker compose up --build -d postgres redis backend worker
   Write-Host ""
-  Write-Host "Receipt Tracker backend stack is starting."
+  Write-Host "Receipt Tracker backend and worker stack is starting."
   Write-Host "Backend API: http://localhost:8000/api/v1"
+  Write-Host "Worker: receipt-tracker-worker"
   Write-Host "Health check: http://localhost:8000/api/v1/health"
   Write-Host "Next step: start the web app from receipt-tracker-starter/web and open /receipts."
 } finally {

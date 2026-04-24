@@ -15,6 +15,7 @@ What this starts:
 - Postgres on `localhost:5432`
 - Redis on `localhost:6379`
 - FastAPI backend on `http://localhost:8000/api/v1`
+- Receipt worker for uploaded receipt processing and sync retries
 
 If `.env` does not exist yet, the script creates it from `.env.example`.
 
@@ -46,7 +47,7 @@ node .\scripts\smoke-receipt-flow.mjs --file "C:\path\to\receipt.jpg" --approve 
 
 ## 4. Run the worker loop
 
-Development runs sync inline by default, but the worker is available when you want production-like behavior:
+The local stack already starts the worker. You can also run a one-off worker cycle for support/debugging:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-worker.ps1 -Once

@@ -52,7 +52,7 @@ Goal: no long-running commercial work depends on one foreground request.
 - Move OCR, normalization, sync, retry, and stale-job reconciliation into a real worker queue.
 - Add exponential backoff, max attempts, dead-letter reporting, and scheduled reconciliation.
 - Keep development inline execution as an opt-in local setting only.
-- Current progress: the backend now has a worker entry point that processes uploaded receipts and due sync jobs in one-shot or continuous mode. Production hosting still needs a durable queue/dead-letter layer before this category reaches 8/10.
+- Current progress: the backend now has a worker entry point and local Docker service that process uploaded receipts and due sync jobs in one-shot or continuous mode. Production hosting still needs a durable queue/dead-letter layer before this category reaches 8/10.
 
 Exit criteria: receipts can be uploaded while workers are temporarily offline and later complete without duplicate posts.
 

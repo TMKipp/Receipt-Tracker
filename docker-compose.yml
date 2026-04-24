@@ -62,6 +62,26 @@ services:
       timeout: 5s
       retries: 5
 
+  worker:
+    build:
+      context: ./backend
+    container_name: receipt-tracker-worker
+    command: ["python", "-m", "app.worker", "--poll-seconds", "5"]
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_DSN: postgresql+psycopg://postgres:postgres@postgres:5432/receipt_tracker
+      REDIS_URL: redis://redis:6379/0
+      LOCAL_UPLOADS_DIR: /var/data/receipt_uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - receipt_tracker_uploads:/var/data/receipt_uploads
+
 volumes:
   receipt_tracker_postgres:
   receipt_tracker_redis:
