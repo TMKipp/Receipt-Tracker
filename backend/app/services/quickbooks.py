@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 import base64
+import json
 import uuid
 from urllib.parse import urlencode
 
@@ -14,7 +15,7 @@ from app.core.config import settings
 from app.models.category import Category
 from app.models.enums import CategorySource, IntegrationProvider
 from app.models.integration import IntegrationConnection
-from app.models.receipt import Receipt
+from app.models.receipt import Receipt, ReceiptFile
 from app.models.user import User
 from app.services.integration_oauth import (
     ensure_connection_access_token,
@@ -26,11 +27,13 @@ from app.services.integration_oauth import (
     validate_pending_oauth_state,
 )
 from app.services.provider_errors import ProviderError
+from app.services.storage import read_object_bytes
 
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 AUTHORIZE_URL = "https://appcenter.intuit.com/connect/oauth2"
 EXPENSE_ACCOUNT_TYPES = {"Expense", "Other Expense", "Cost of Goods Sold"}
 PAYMENT_ACCOUNT_TYPES = {"Bank", "Credit Card", "Other Current Asset"}
+QBO_REQUEST_ID_MAX_LENGTH = 50
 
 
 def build_quickbooks_authorization_url(state: str, redirect_uri: str | None) -> str:
@@ -166,6 +169,85 @@ def _quickbooks_request(
         )
 
     return response.json()
+
+
+def _quickbooks_upload_attachment(
+    *,
+    access_token: str,
+    realm_id: str,
+    purchase_id: str,
+    receipt_file: ReceiptFile,
+    receipt_id: uuid.UUID,
+) -> dict:
+    file_bytes = read_object_bytes(receipt_file.object_key)
+    filename = receipt_file.original_filename or receipt_file.object_key.rsplit("/", 1)[-1] or f"receipt-{receipt_id}.bin"
+    content_type = receipt_file.mime_type or "application/octet-stream"
+    metadata = {
+        "FileName": filename,
+        "ContentType": content_type,
+        "Note": f"Receipt Tracker source image for receipt {receipt_id}",
+        "AttachableRef": [
+            {
+                "EntityRef": {
+                    "type": "Purchase",
+                    "value": purchase_id,
+                }
+            }
+        ],
+    }
+    url = f"{settings.qbo_base_url.rstrip('/')}/v3/company/{realm_id}/upload"
+
+    try:
+        response = httpx.post(
+            url,
+            params={"minorversion": str(settings.qbo_minor_version)},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+            },
+            files={
+                "file_metadata_01": ("attachment.json", json.dumps(metadata), "application/json"),
+                "file_content_01": (filename, file_bytes, content_type),
+            },
+            timeout=60.0,
+        )
+    except httpx.HTTPError as exc:
+        raise ProviderError(
+            "quickbooks_attachment_transport_error",
+            f"QuickBooks attachment upload failed: {exc}",
+            retryable=True,
+        ) from exc
+
+    if response.status_code >= 400:
+        message = response.text
+        details = None
+        try:
+            details = response.json()
+            fault = details.get("Fault", {}) if isinstance(details, dict) else {}
+            error_entries = fault.get("Error") or []
+            if error_entries:
+                first = error_entries[0]
+                message = first.get("Detail") or first.get("Message") or message
+        except ValueError:
+            details = None
+        raise ProviderError(
+            "quickbooks_attachment_failed",
+            f"QuickBooks expense was created, but the receipt image could not be attached: {message}",
+            retryable=response.status_code in {408, 409, 429, 500, 502, 503, 504},
+            needs_reauth=response.status_code in {401, 403},
+            details=details if isinstance(details, dict) else None,
+        )
+
+    payload = response.json()
+    attachables = payload.get("AttachableResponse") or payload.get("Attachable") or []
+    return {
+        "status": "attached",
+        "fileName": filename,
+        "contentType": content_type,
+        "fileSizeBytes": receipt_file.file_size_bytes,
+        "responsePayload": payload,
+        "attachmentCount": len(attachables) if isinstance(attachables, list) else 1,
+    }
 
 
 def _query(access_token: str, realm_id: str, query: str) -> dict:
@@ -359,7 +441,53 @@ def _build_purchase_payload(
     return payload
 
 
-def sync_receipt_to_quickbooks(db: Session, connection: IntegrationConnection, receipt: Receipt) -> dict:
+def _quickbooks_request_id(idempotency_key: str) -> str:
+    return idempotency_key.replace(":", "-")[:QBO_REQUEST_ID_MAX_LENGTH]
+
+
+def _attach_receipt_image(
+    *,
+    access_token: str,
+    realm_id: str,
+    purchase_id: str,
+    receipt: Receipt,
+) -> dict:
+    if not purchase_id:
+        return {
+            "status": "skipped",
+            "reason": "QuickBooks did not return a purchase ID to attach the source file to.",
+        }
+    if not receipt.files:
+        return {
+            "status": "skipped",
+            "reason": "No source receipt image is available for attachment.",
+        }
+    try:
+        return _quickbooks_upload_attachment(
+            access_token=access_token,
+            realm_id=realm_id,
+            purchase_id=purchase_id,
+            receipt_file=receipt.files[0],
+            receipt_id=receipt.id,
+        )
+    except ProviderError as exc:
+        return {
+            "status": "failed",
+            "errorCode": exc.code,
+            "message": exc.message,
+            "retryable": exc.retryable,
+            "needsReauth": exc.needs_reauth,
+            "details": exc.details,
+        }
+
+
+def sync_receipt_to_quickbooks(
+    db: Session,
+    connection: IntegrationConnection,
+    receipt: Receipt,
+    *,
+    idempotency_key: str,
+) -> dict:
     realm_id = connection.external_tenant_id or str((connection.metadata_json or {}).get("realmId") or "")
     if not realm_id:
         raise ProviderError("quickbooks_realm_missing", "QuickBooks realm information is missing from this connection.", needs_reauth=True)
@@ -391,13 +519,22 @@ def sync_receipt_to_quickbooks(db: Session, connection: IntegrationConnection, r
         access_token=access_token,
         realm_id=realm_id,
         path="purchase",
-        params={"requestid": str(uuid.uuid4()), "minorversion": str(settings.qbo_minor_version)},
+        params={"requestid": _quickbooks_request_id(idempotency_key), "minorversion": str(settings.qbo_minor_version)},
         json=payload,
     )
     purchase = response.get("Purchase") or {}
+    purchase_id = str(purchase.get("Id") or "")
+    attachment = _attach_receipt_image(
+        access_token=access_token,
+        realm_id=realm_id,
+        purchase_id=purchase_id,
+        receipt=receipt,
+    )
     return {
-        "externalObjectId": str(purchase.get("Id") or ""),
+        "externalObjectId": purchase_id,
         "provider": "quickbooks",
+        "requestId": _quickbooks_request_id(idempotency_key),
         "requestPayload": payload,
         "responsePayload": response,
+        "attachment": attachment,
     }

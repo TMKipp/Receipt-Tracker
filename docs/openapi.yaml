@@ -249,6 +249,65 @@ components:
         updatedAt:
           type: string
           format: date-time
+    SyncJob:
+      type: object
+      required: [id, target, status, attempts, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        target:
+          type: string
+          enum: [quickbooks, excel]
+        status:
+          type: string
+          enum: [queued, running, succeeded, failed, needs_reauth]
+        attempts:
+          type: integer
+        externalObjectId:
+          type: string
+          nullable: true
+        providerRequestId:
+          type: string
+          nullable: true
+          description: Support-safe provider request id, such as the Intuit requestid used for idempotency.
+        attachmentStatus:
+          type: string
+          nullable: true
+          description: QuickBooks attachment status for the source receipt image.
+        attachmentError:
+          type: string
+          nullable: true
+          description: Safe attachment failure reason when the expense posts but image attachment does not.
+        lastErrorCode:
+          type: string
+          nullable: true
+        lastErrorMessage:
+          type: string
+          nullable: true
+        scheduledAt:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+    ReceiptSyncJobListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SyncJob'
     ReceiptListResponse:
       type: object
       required: [data, pagination]
@@ -731,6 +790,21 @@ paths:
                   status:
                     type: string
                     example: queued
+  /receipts/{receiptId}/sync-jobs:
+    get:
+      tags: [receipts]
+      summary: List support-safe sync job diagnostics for a receipt
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/receiptId'
+      responses:
+        '200':
+          description: Sync jobs for the receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptSyncJobListResponse'
   /categories:
     get:
       tags: [categories]

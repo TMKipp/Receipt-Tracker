@@ -28,6 +28,8 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - `POST /receipts/{receiptId}/sync`
 - `GET /receipts/{receiptId}/sync-jobs`
 
+`GET /receipts/{receiptId}/sync-jobs` includes support-safe diagnostics such as `provider_request_id`, `attachment_status`, and `attachment_error` so support can investigate QuickBooks expense posts and receipt-image attachment without exposing raw provider payloads.
+
 ## Categories and Vendors
 
 - `GET /categories`
@@ -46,6 +48,8 @@ All endpoints are defined in [openapi.yaml](/C:/Users/Terry/OneDrive/Documents/N
 - `GET /integrations/health`
 - `POST /integrations/sync-jobs/run`
 - `POST /integrations/worker/run`
+
+QuickBooks sync uses the sync job idempotency key as the Intuit `requestid` and attempts to attach the first source receipt image to the created Purchase. Expense creation remains the primary accounting record; attachment outcome is recorded separately as `attached`, `skipped`, or `failed`.
 
 `GET /integrations/microsoft/workbook-tables` returns each table with column compatibility metadata:
 

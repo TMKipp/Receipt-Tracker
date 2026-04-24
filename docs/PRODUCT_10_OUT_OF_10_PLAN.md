@@ -64,7 +64,7 @@ QuickBooks and Excel are the commercial promise, so sync cannot feel magical or 
 - Store idempotency keys, request payloads, response payloads, attempt counts, and safe error messages.
 - Add token refresh, re-auth prompts, retry/backoff, and stale job reconciliation.
 
-Current progress: Excel table search now exposes supported column metadata, flags missing recommended columns before binding, and blocks tables with zero supported receipt columns. The remaining 10/10 work is table creation fallback, provider sandbox proof, and append reliability measurement.
+Current progress: Excel table search now exposes supported column metadata, flags missing recommended columns before binding, and blocks tables with zero supported receipt columns. QuickBooks sync now reuses the sync-job idempotency key as the Intuit request ID, attempts to attach the source receipt image to the created Purchase, and exposes support-safe request and attachment diagnostics. Mobile now runs on an Expo Doctor-clean Expo 55 / React Native 0.83 stack with a self-healing offline queue and TypeScript validation. The remaining 10/10 work is table creation fallback, provider sandbox proof, and beta reliability measurement.
 
 Exit gate: beta sync reliability hits 98% QuickBooks and 97% Excel with no duplicate accounting records.
 
@@ -97,5 +97,5 @@ Exit gate: public launch is blocked unless the release checklist and core metric
 4. Mobile offline retry automation.
 5. OCR corpus and scoring harness.
 6. RevenueCat restore and entitlement edge cases.
-7. CI smoke tests and provider sandbox validation.
+7. CI smoke tests, provider sandbox validation, and production audit review.
 8. App-store beta package and support diagnostics.

@@ -81,6 +81,9 @@ class SyncJobRead(APIModel):
     status: str
     attempts: int
     external_object_id: str | None = None
+    provider_request_id: str | None = None
+    attachment_status: str | None = None
+    attachment_error: str | None = None
     last_error_code: str | None = None
     last_error_message: str | None = None
     scheduled_at: datetime | None = None

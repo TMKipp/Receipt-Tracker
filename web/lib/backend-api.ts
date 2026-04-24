@@ -12,6 +12,9 @@ export type ReceiptSyncJob = {
   status: string;
   attempts: number;
   external_object_id: string | null;
+  provider_request_id: string | null;
+  attachment_status: string | null;
+  attachment_error: string | null;
   last_error_code: string | null;
   last_error_message: string | null;
   scheduled_at: string | null;

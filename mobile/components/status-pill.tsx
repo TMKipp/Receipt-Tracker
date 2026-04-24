@@ -9,22 +9,22 @@ type StatusPillProps = {
 
 export function StatusPill({ label, tone = "accent" }: StatusPillProps) {
   const toneStyles = {
-    accent: [styles.pill, styles.pillAccent],
-    warm: [styles.pill, styles.pillWarm],
-    neutral: [styles.pill, styles.pillNeutral],
-    danger: [styles.pill, styles.pillDanger],
-  } as const;
+    accent: styles.pillAccent,
+    warm: styles.pillWarm,
+    neutral: styles.pillNeutral,
+    danger: styles.pillDanger,
+  };
 
   const textStyles = {
-    accent: [styles.text, styles.textAccent],
-    warm: [styles.text, styles.textWarm],
-    neutral: [styles.text, styles.textNeutral],
-    danger: [styles.text, styles.textDanger],
-  } as const;
+    accent: styles.textAccent,
+    warm: styles.textWarm,
+    neutral: styles.textNeutral,
+    danger: styles.textDanger,
+  };
 
   return (
-    <View style={toneStyles[tone]}>
-      <Text style={textStyles[tone]}>{label}</Text>
+    <View style={[styles.pill, toneStyles[tone]]}>
+      <Text style={[styles.text, textStyles[tone]]}>{label}</Text>
     </View>
   );
 }

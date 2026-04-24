@@ -205,12 +205,23 @@ def compute_sync_state(
 
 
 def serialize_sync_job(job: SyncJob) -> SyncJobRead:
+    response_payload = job.response_payload if isinstance(job.response_payload, dict) else {}
+    attachment_payload = response_payload.get("attachment") if isinstance(response_payload.get("attachment"), dict) else {}
     return SyncJobRead(
         id=job.id,
         target=job.target,
         status=job.status.value,
         attempts=job.attempts,
         external_object_id=job.external_object_id,
+        provider_request_id=response_payload.get("requestId") if isinstance(response_payload.get("requestId"), str) else None,
+        attachment_status=attachment_payload.get("status") if isinstance(attachment_payload.get("status"), str) else None,
+        attachment_error=(
+            attachment_payload.get("message")
+            if isinstance(attachment_payload.get("message"), str)
+            else attachment_payload.get("reason")
+            if isinstance(attachment_payload.get("reason"), str)
+            else None
+        ),
         last_error_code=job.last_error_code,
         last_error_message=job.last_error_message,
         scheduled_at=job.scheduled_at,

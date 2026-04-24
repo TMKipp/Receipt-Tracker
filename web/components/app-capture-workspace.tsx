@@ -99,6 +99,29 @@ function syncStatusTone(status: string | null | undefined) {
   }
 }
 
+function syncSupportDetail(job: ReceiptSyncJob | undefined, fallback: string) {
+  if (!job) {
+    return fallback;
+  }
+  if (job.last_error_message) {
+    return job.last_error_message;
+  }
+  if (job.target === "quickbooks" && job.attachment_status) {
+    const requestLabel = job.provider_request_id ? ` Request ${job.provider_request_id}.` : "";
+    const attachmentLabel =
+      job.attachment_status === "attached"
+        ? "Receipt image attached."
+        : job.attachment_status === "failed"
+          ? `Attachment failed${job.attachment_error ? `: ${job.attachment_error}` : "."}`
+          : job.attachment_error || `Attachment ${job.attachment_status}.`;
+    return `${attachmentLabel}${requestLabel}`;
+  }
+  if (job.provider_request_id) {
+    return `Provider request ${job.provider_request_id}.`;
+  }
+  return fallback;
+}
+
 function confidenceLabel(receipt: ApiReceipt | null) {
   if (!receipt?.overall_confidence) {
     return "Pending";
@@ -927,14 +950,14 @@ export function AppCaptureWorkspace() {
                 <strong className={`status-pill ${syncStatusTone(lastQuickBooksJob?.status ?? liveReceipt.sync_targets.quickbooks)}`}>
                   {syncStatusLabel(lastQuickBooksJob?.status ?? liveReceipt.sync_targets.quickbooks)}
                 </strong>
-                <p>{lastQuickBooksJob?.last_error_message || "Creates an approved expense when connected."}</p>
+                <p>{syncSupportDetail(lastQuickBooksJob, "Creates an approved expense and attaches the source image when connected.")}</p>
               </article>
               <article>
                 <span>Excel</span>
                 <strong className={`status-pill ${syncStatusTone(lastExcelJob?.status ?? liveReceipt.sync_targets.excel)}`}>
                   {syncStatusLabel(lastExcelJob?.status ?? liveReceipt.sync_targets.excel)}
                 </strong>
-                <p>{lastExcelJob?.last_error_message || "Appends the approved fields to the pinned workbook table."}</p>
+                <p>{syncSupportDetail(lastExcelJob, "Appends the approved fields to the pinned workbook table.")}</p>
               </article>
               <article>
                 <span>Jobs</span>

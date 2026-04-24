@@ -71,7 +71,7 @@ def _execute_target(db: Session, job: SyncJob) -> dict:
         )
 
     if job.target == SyncTarget.QUICKBOOKS:
-        return sync_receipt_to_quickbooks(db, connection, receipt)
+        return sync_receipt_to_quickbooks(db, connection, receipt, idempotency_key=job.idempotency_key)
 
     if job.target == SyncTarget.EXCEL:
         binding: ExcelWorkbookBinding | None = get_workbook_binding(db, receipt.user)

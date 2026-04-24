@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppState, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ScreenFrame } from "@/components/screen-frame";
 import { StatusPill } from "@/components/status-pill";
@@ -85,11 +85,13 @@ export default function CaptureScreen() {
   const [statusMessage, setStatusMessage] = useState("Take a photo or choose one from your library.");
   const [readyTargets, setReadyTargets] = useState<Array<"quickbooks" | "excel">>([]);
   const [isBusy, setIsBusy] = useState(false);
+  const [isRetryingQueue, setIsRetryingQueue] = useState(false);
   const queuedCount = queueRecords.filter((record) => record.state === "queued_offline").length;
   const activeCount = queueRecords.filter(
     (record) => record.state === "uploading" || record.state === "processing",
   ).length;
   const failedCount = queueRecords.filter((record) => record.state === "failed").length;
+  const retryableCount = queuedCount + failedCount;
 
   useEffect(() => {
     let isCancelled = false;
@@ -140,6 +142,22 @@ export default function CaptureScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        void retryQueuedReceipts(false);
+      }
+    });
+    const interval = setInterval(() => {
+      void retryQueuedReceipts(false);
+    }, 60000);
+
+    return () => {
+      subscription.remove();
+      clearInterval(interval);
+    };
+  }, [isBusy, isRetryingQueue]);
+
   function openQueueRecord(record: OfflineQueueRecord) {
     setActiveQueueId(record.id);
     setAsset(record.asset);
@@ -170,6 +188,79 @@ export default function CaptureScreen() {
       setStatusMessage(queueRecordDetail(updated));
     }
     return updated;
+  }
+
+  async function processQueueRecord(record: OfflineQueueRecord) {
+    await updateOfflineQueueRecord(record.id, {
+      state: "uploading",
+      lastError: null,
+    });
+    if (record.id === activeQueueId) {
+      setQueueState("uploading");
+      setStatusMessage("Retrying upload from the saved device queue...");
+    }
+
+    try {
+      await updateOfflineQueueRecord(record.id, { state: "processing" });
+      if (record.id === activeQueueId) {
+        setQueueState("processing");
+        setStatusMessage("Receipt uploaded. Waiting for extraction...");
+      }
+      const uploadedReceipt = await uploadCapturedReceipt(identity, record.asset, record.notes);
+      const nextState = receiptStatusToQueueState(uploadedReceipt.status);
+      await updateOfflineQueueRecord(record.id, {
+        state: nextState,
+        receiptId: uploadedReceipt.id,
+        label: uploadedReceipt.merchant_name || "Receipt ready for review",
+        lastError: uploadedReceipt.processing_error,
+      });
+      if (record.id === activeQueueId) {
+        setReceipt(uploadedReceipt);
+        setQueueState(nextState);
+        setStatusMessage(
+          uploadedReceipt.status === "failed"
+            ? uploadedReceipt.processing_error || "Receipt processing failed."
+            : "Receipt fields are ready for review.",
+        );
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Upload failed.";
+      const lowerDetail = detail.toLowerCase();
+      const nextState =
+        lowerDetail.includes("network") || lowerDetail.includes("failed to fetch") ? "queued_offline" : "failed";
+      await updateOfflineQueueRecord(record.id, {
+        state: nextState,
+        lastError: detail,
+      });
+      if (record.id === activeQueueId) {
+        setQueueState(nextState);
+        setStatusMessage(detail);
+      }
+    }
+  }
+
+  async function retryQueuedReceipts(includeFailed: boolean) {
+    if (isBusy || isRetryingQueue) {
+      return;
+    }
+
+    const records = await listOfflineQueueRecords();
+    const retryableRecords = records.filter(
+      (record) => record.state === "queued_offline" || (includeFailed && record.state === "failed"),
+    );
+    if (!retryableRecords.length) {
+      return;
+    }
+
+    setIsRetryingQueue(true);
+    try {
+      for (const record of retryableRecords.slice(0, 3)) {
+        await processQueueRecord(record);
+      }
+      await refreshQueue();
+    } finally {
+      setIsRetryingQueue(false);
+    }
   }
 
   function handleNotesChange(nextNotes: string) {
@@ -426,6 +517,18 @@ export default function CaptureScreen() {
         </View>
       </View>
 
+      {retryableCount > 0 ? (
+        <Pressable
+          style={[styles.retryQueueAction, (isBusy || isRetryingQueue) && styles.disabledAction]}
+          onPress={() => retryQueuedReceipts(true)}
+          disabled={isBusy || isRetryingQueue}
+        >
+          <Text style={styles.retryQueueActionText}>
+            {isRetryingQueue ? "Retrying queue..." : `Retry ${retryableCount} queued receipt${retryableCount === 1 ? "" : "s"}`}
+          </Text>
+        </Pressable>
+      ) : null}
+
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Queue health</Text>
         <Text style={styles.sectionMeta}>Resumes on reconnect</Text>
@@ -677,6 +780,19 @@ const styles = StyleSheet.create({
     color: palette.muted,
     fontSize: 13,
     lineHeight: 18,
+  },
+  retryQueueAction: {
+    paddingVertical: 14,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.line,
+    backgroundColor: palette.surfaceSoft,
+    alignItems: "center",
+  },
+  retryQueueActionText: {
+    color: palette.ink,
+    fontSize: 14,
+    fontWeight: "700",
   },
   sectionHeader: {
     flexDirection: "row",

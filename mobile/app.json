@@ -29,7 +29,6 @@
     "android": {
       "package": "com.ledgerlens.app",
       "versionCode": 1,
-      "edgeToEdgeEnabled": true,
       "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
     }
   }
