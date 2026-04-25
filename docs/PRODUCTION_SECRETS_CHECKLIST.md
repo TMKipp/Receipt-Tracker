@@ -76,6 +76,7 @@ Set repository or environment secrets matching these names:
 - `REVENUECAT_ENTITLEMENT_KEY`
 - `OPENAI_API_KEY`
 - `AWS_REGION`
+- `RECEIPT_TRACKER_BEARER_TOKEN` (for authenticated benchmark workflow runs)
 
 Then manually run workflow:
 
@@ -87,6 +88,12 @@ Run provider benchmark with strict thresholds:
 
 ```powershell
 node .\scripts\provider-sandbox-benchmark.mjs --files "C:\receipts\r1.jpg,C:\receipts\r2.jpg" --iterations 2 --strict
+```
+
+Bearer-auth benchmark:
+
+```powershell
+node .\scripts\provider-sandbox-benchmark.mjs --files "C:\receipts\r1.jpg,C:\receipts\r2.jpg" --iterations 2 --auth-token "<ACCESS_TOKEN>" --strict
 ```
 
 Thresholds:

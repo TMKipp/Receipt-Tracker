@@ -45,6 +45,12 @@ Optional approval + sync:
 node .\scripts\smoke-receipt-flow.mjs --file "C:\path\to\receipt.jpg" --approve --sync-targets quickbooks,excel
 ```
 
+Bearer-auth mode:
+
+```powershell
+node .\scripts\smoke-receipt-flow.mjs --file "C:\path\to\receipt.jpg" --approve --sync-targets quickbooks,excel --auth-token "<ACCESS_TOKEN>"
+```
+
 Provider reliability benchmark:
 
 ```powershell
@@ -55,6 +61,13 @@ Quick local fixture run:
 
 ```powershell
 node .\scripts\provider-sandbox-benchmark.mjs --files ".\scripts\fixtures\provider-smoke-receipt.txt" --sync-targets quickbooks,excel
+```
+
+Bearer-auth benchmark mode:
+
+```powershell
+$env:RECEIPT_TRACKER_BEARER_TOKEN="<ACCESS_TOKEN>"
+node .\scripts\provider-sandbox-benchmark.mjs --files ".\scripts\fixtures\provider-smoke-receipt.txt" --sync-targets quickbooks,excel --strict
 ```
 
 ## 4. Run the worker loop

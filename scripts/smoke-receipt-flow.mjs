@@ -7,6 +7,7 @@ function parseArgs(argv) {
     backend: process.env.RECEIPT_TRACKER_BACKEND_URL || "http://localhost:8000/api/v1",
     demoEmail: process.env.RECEIPT_TRACKER_DEMO_EMAIL || "demo@example.com",
     demoName: process.env.RECEIPT_TRACKER_DEMO_NAME || "Demo User",
+    authToken: process.env.RECEIPT_TRACKER_BEARER_TOKEN || "",
     notes: "",
     approve: false,
     syncTargets: [],
@@ -18,6 +19,7 @@ function parseArgs(argv) {
     if (value === "--backend") parsed.backend = argv[index + 1] || parsed.backend;
     if (value === "--email") parsed.demoEmail = argv[index + 1] || parsed.demoEmail;
     if (value === "--name") parsed.demoName = argv[index + 1] || parsed.demoName;
+    if (value === "--auth-token") parsed.authToken = argv[index + 1] || parsed.authToken;
     if (value === "--notes") parsed.notes = argv[index + 1] || parsed.notes;
     if (value === "--file") parsed.file = argv[index + 1] || parsed.file;
     if (value === "--approve") parsed.approve = true;
@@ -30,10 +32,22 @@ function parseArgs(argv) {
   }
 
   if (!parsed.file) {
-    throw new Error("Usage: node scripts/smoke-receipt-flow.mjs --file C:\\path\\to\\receipt.jpg [--approve] [--sync-targets quickbooks,excel]");
+    throw new Error("Usage: node scripts/smoke-receipt-flow.mjs --file C:\\path\\to\\receipt.jpg [--approve] [--sync-targets quickbooks,excel] [--auth-token TOKEN]");
   }
 
   return parsed;
+}
+
+function buildIdentityHeaders(args) {
+  if (args.authToken && args.authToken.trim()) {
+    return {
+      Authorization: `Bearer ${args.authToken.trim()}`,
+    };
+  }
+  return {
+    "X-Demo-User-Email": args.demoEmail,
+    "X-Demo-User-Name": args.demoName,
+  };
 }
 
 function guessMimeType(filePath) {
@@ -87,12 +101,7 @@ async function requestJson(url, options = {}) {
   return normalizeApiPayload(payload);
 }
 
-async function waitForProcessing(args, receiptId) {
-  const headers = {
-    "X-Demo-User-Email": args.demoEmail,
-    "X-Demo-User-Name": args.demoName,
-  };
-
+async function waitForProcessing(args, headers, receiptId) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const status = await requestJson(`${args.backend}/receipts/${receiptId}/processing-status`, { headers });
     if (!["uploaded", "processing"].includes(status.status)) {
@@ -109,10 +118,10 @@ async function main() {
   const fileBuffer = await readFile(args.file);
   const mimeType = guessMimeType(args.file);
   const sha256 = createHash("sha256").update(fileBuffer).digest("hex");
+  const identityHeaders = buildIdentityHeaders(args);
   const headers = {
     "Content-Type": "application/json",
-    "X-Demo-User-Email": args.demoEmail,
-    "X-Demo-User-Name": args.demoName,
+    ...identityHeaders,
   };
 
   const presign = await requestJson(`${args.backend}/uploads/receipts/presign`, {
@@ -158,13 +167,10 @@ async function main() {
     }),
   });
 
-  const processingStatus = await waitForProcessing(args, createdReceipt.id);
+  const processingStatus = await waitForProcessing(args, identityHeaders, createdReceipt.id);
 
   let receipt = await requestJson(`${args.backend}/receipts/${createdReceipt.id}`, {
-    headers: {
-      "X-Demo-User-Email": args.demoEmail,
-      "X-Demo-User-Name": args.demoName,
-    },
+    headers: identityHeaders,
   });
 
   if (args.approve) {
@@ -179,10 +185,7 @@ async function main() {
   }
 
   const syncJobs = await requestJson(`${args.backend}/receipts/${createdReceipt.id}/sync-jobs`, {
-    headers: {
-      "X-Demo-User-Email": args.demoEmail,
-      "X-Demo-User-Name": args.demoName,
-    },
+    headers: identityHeaders,
   });
 
   const summary = {
@@ -197,6 +200,7 @@ async function main() {
     syncTargets: receipt.sync_targets || null,
     syncJobs: syncJobs.data || [],
     processingError: receipt.processing_error,
+    authMode: args.authToken ? "bearer" : "demo_headers",
   };
 
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);

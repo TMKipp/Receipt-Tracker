@@ -34,6 +34,8 @@ jobs:
           node-version: 22
       - name: Run provider benchmark
         shell: bash
+        env:
+          RECEIPT_TRACKER_BEARER_TOKEN: ${{ secrets.RECEIPT_TRACKER_BEARER_TOKEN }}
         run: |
           STRICT_ARG=""
           if [ "${{ github.event.inputs.strict }}" = "true" ]; then

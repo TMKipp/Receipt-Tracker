@@ -22,16 +22,24 @@ Optional, but recommended for OCR realism:
 - `OPENAI_ENABLED=true`
 - `OPENAI_API_KEY`
 
-## 2) Connect Integrations as a Demo User
+## 2) Connect Integrations as the Benchmark User
 
 1. Start backend + worker and web app.
-2. Sign in (or run with demo headers in local mode).
+2. Sign in with the account you will benchmark.
 3. Connect QuickBooks in sandbox mode.
 4. Connect Microsoft and pin a workbook/table for Excel append.
 5. Verify integration health:
 
+Local demo-auth mode:
+
 ```powershell
 curl -H "X-Demo-User-Email: demo@example.com" -H "X-Demo-User-Name: Demo User" http://localhost:8000/api/v1/integrations/health
+```
+
+Bearer mode (`DEV_AUTH_ENABLED=false`):
+
+```powershell
+curl -H "Authorization: Bearer <ACCESS_TOKEN>" http://localhost:8000/api/v1/integrations/health
 ```
 
 `sync_ready_targets` should include `quickbooks` and `excel`.
@@ -41,6 +49,19 @@ curl -H "X-Demo-User-Email: demo@example.com" -H "X-Demo-User-Name: Demo User" h
 Use real receipt files when possible:
 
 ```powershell
+node .\scripts\provider-sandbox-benchmark.mjs --files "C:\receipts\r1.jpg,C:\receipts\r2.jpg" --iterations 2 --strict
+```
+
+Bearer mode:
+
+```powershell
+node .\scripts\provider-sandbox-benchmark.mjs --files "C:\receipts\r1.jpg,C:\receipts\r2.jpg" --iterations 2 --auth-token "<ACCESS_TOKEN>" --strict
+```
+
+Environment-variable mode:
+
+```powershell
+$env:RECEIPT_TRACKER_BEARER_TOKEN="<ACCESS_TOKEN>"
 node .\scripts\provider-sandbox-benchmark.mjs --files "C:\receipts\r1.jpg,C:\receipts\r2.jpg" --iterations 2 --strict
 ```
 
@@ -85,3 +106,4 @@ Use the manual workflow:
   - `strict`
 
 This workflow uses the repo fixture by default and is best for deployed staging backends reachable from GitHub runners.
+For bearer-auth environments, set repository secret `RECEIPT_TRACKER_BEARER_TOKEN`.

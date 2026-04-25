@@ -7,6 +7,7 @@ function parseArgs(argv) {
     backend: process.env.RECEIPT_TRACKER_BACKEND_URL || "http://localhost:8000/api/v1",
     demoEmail: process.env.RECEIPT_TRACKER_DEMO_EMAIL || "demo@example.com",
     demoName: process.env.RECEIPT_TRACKER_DEMO_NAME || "Demo User",
+    authToken: process.env.RECEIPT_TRACKER_BEARER_TOKEN || "",
     files: [],
     syncTargets: [],
     iterations: 1,
@@ -24,6 +25,7 @@ function parseArgs(argv) {
     if (value === "--backend") parsed.backend = argv[index + 1] || parsed.backend;
     if (value === "--email") parsed.demoEmail = argv[index + 1] || parsed.demoEmail;
     if (value === "--name") parsed.demoName = argv[index + 1] || parsed.demoName;
+    if (value === "--auth-token") parsed.authToken = argv[index + 1] || parsed.authToken;
     if (value === "--sync-targets") {
       parsed.syncTargets = String(argv[index + 1] || "")
         .split(",")
@@ -52,7 +54,7 @@ function parseArgs(argv) {
 
   if (!parsed.files.length) {
     throw new Error(
-      "Usage: node scripts/provider-sandbox-benchmark.mjs --files C:\\path\\receipt1.jpg,C:\\path\\receipt2.jpg [--sync-targets quickbooks,excel] [--iterations 3] [--strict]",
+      "Usage: node scripts/provider-sandbox-benchmark.mjs --files C:\\path\\receipt1.jpg,C:\\path\\receipt2.jpg [--sync-targets quickbooks,excel] [--iterations 3] [--auth-token TOKEN] [--strict]",
     );
   }
 
@@ -65,6 +67,18 @@ function parseArgs(argv) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildIdentityHeaders(args) {
+  if (args.authToken && args.authToken.trim()) {
+    return {
+      Authorization: `Bearer ${args.authToken.trim()}`,
+    };
+  }
+  return {
+    "X-Demo-User-Email": args.demoEmail,
+    "X-Demo-User-Name": args.demoName,
+  };
 }
 
 function guessMimeType(filePath) {
@@ -389,10 +403,7 @@ function evaluateThresholds(args, scorecard) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const headers = {
-    "X-Demo-User-Email": args.demoEmail,
-    "X-Demo-User-Name": args.demoName,
-  };
+  const headers = buildIdentityHeaders(args);
 
   const health = await resolveHealth(args, headers);
   const targets = resolveTargets(args, health);
@@ -423,6 +434,7 @@ async function main() {
   const report = {
     backend: args.backend,
     evaluated_at: new Date().toISOString(),
+    auth_mode: args.authToken ? "bearer" : "demo_headers",
     sync_targets: targets,
     health,
     thresholds: {
