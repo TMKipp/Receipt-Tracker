@@ -52,6 +52,7 @@ receipt-tracker-starter/
 ## Quality Gates
 
 - `node scripts/launch-readiness-check.mjs --ci --strict` validates contract files, core implementations, lockfiles, and CI-safe readiness checks.
+- `node scripts/launch-readiness-check.mjs --production --strict` enforces go-live security and infrastructure policy checks.
 - `cd web && npm run build` verifies the companion app production build.
 - `cd mobile && npx tsc --noEmit && npx expo-doctor` verifies mobile types and Expo dependency health.
 - `cd backend && pip install -e ".[dev]" && pytest tests` runs backend service logic tests.
@@ -88,3 +89,4 @@ GitHub Actions runs these quality gates in `.github/workflows/quality-gates.yml`
 - [Provider sandbox runbook](./docs/PROVIDER_SANDBOX_RUNBOOK.md)
 - [Mobile release checklist](./docs/MOBILE_RELEASE_CHECKLIST.md)
 - [Device QA matrix](./docs/DEVICE_QA_MATRIX.md)
+- [Production secrets checklist](./docs/PRODUCTION_SECRETS_CHECKLIST.md)

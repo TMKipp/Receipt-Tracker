@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = new Set(process.argv.slice(2));
 const ciMode = args.has("--ci");
+const productionMode = args.has("--production") || args.has("--prod");
 
 function commandAvailable(command, versionArgs = ["--version"]) {
   if (command === "current-node") {
@@ -53,7 +54,40 @@ function loadLocalEnv() {
   return env;
 }
 
+function loadRawEnv() {
+  const env = new Map();
+  const envPath = path.join(root, ".env");
+  if (!existsSync(envPath)) {
+    return env;
+  }
+
+  const raw = readFileSync(envPath, "utf8");
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) {
+      continue;
+    }
+    const [key, ...valueParts] = trimmed.split("=");
+    const normalizedKey = key.trim();
+    if (!normalizedKey) {
+      continue;
+    }
+    env.set(normalizedKey, valueParts.join("=").trim());
+  }
+  return env;
+}
+
 const localEnv = loadLocalEnv();
+const rawEnv = loadRawEnv();
+
+function resolveEnvValue(key) {
+  const runtimeValue = process.env[key];
+  if (runtimeValue !== undefined && String(runtimeValue).trim()) {
+    return String(runtimeValue).trim();
+  }
+  const fileValue = rawEnv.get(key);
+  return fileValue ? String(fileValue).trim() : "";
+}
 
 function fileCheck(label, relativePath, required = true) {
   return {
@@ -81,11 +115,42 @@ function envCheck(label, keys, required = true) {
   };
 }
 
+function envPolicyCheck(
+  label,
+  key,
+  predicate,
+  {
+    required = true,
+    passDetail = "configured",
+    failDetail = "does not satisfy policy",
+    showValue = false,
+  } = {},
+) {
+  const value = resolveEnvValue(key);
+  if (!value) {
+    return {
+      label,
+      status: required ? "blocker" : "warn",
+      detail: `missing ${key}`,
+    };
+  }
+
+  const pass = predicate(value);
+  const failureDetail = showValue ? `${failDetail}; current=${value}` : failDetail;
+  return {
+    label,
+    status: pass ? "pass" : required ? "blocker" : "warn",
+    detail: pass ? passDetail : failureDetail,
+  };
+}
+
 function statusIcon(status) {
   if (status === "pass") return "PASS";
   if (status === "warn") return "WARN";
   return "BLOCK";
 }
+
+const providerCredentialsRequired = productionMode || !ciMode;
 
 const checks = [
   {
@@ -101,19 +166,116 @@ const checks = [
   {
     category: "Provider Credentials",
     checks: [
-      envCheck("QuickBooks sandbox OAuth", ["QBO_CLIENT_ID", "QBO_CLIENT_SECRET", "QBO_REDIRECT_URI"], !ciMode),
-      envCheck("Microsoft Graph OAuth", ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REDIRECT_URI"], !ciMode),
-      envCheck("RevenueCat entitlement webhooks", ["REVENUECAT_WEBHOOK_AUTHORIZATION", "REVENUECAT_ENTITLEMENT_KEY"], !ciMode),
-      envCheck("Supabase JWT verification", ["SUPABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_JWT_ISSUER"], false),
+      envCheck("QuickBooks sandbox OAuth", ["QBO_CLIENT_ID", "QBO_CLIENT_SECRET", "QBO_REDIRECT_URI"], providerCredentialsRequired),
+      envCheck("Microsoft Graph OAuth", ["MS_CLIENT_ID", "MS_CLIENT_SECRET", "MS_REDIRECT_URI"], providerCredentialsRequired),
+      envCheck("RevenueCat entitlement webhooks", ["REVENUECAT_WEBHOOK_AUTHORIZATION", "REVENUECAT_ENTITLEMENT_KEY"], providerCredentialsRequired),
+      envCheck("Supabase JWT verification", ["SUPABASE_URL", "SUPABASE_JWKS_URL", "SUPABASE_JWT_ISSUER"], productionMode),
       envCheck("OCR and AI providers", ["AWS_REGION", "OPENAI_API_KEY"], false),
     ],
   },
+  ...(productionMode
+    ? [
+        {
+          category: "Production Hardening",
+          checks: [
+            envPolicyCheck("Environment mode", "APP_ENV", (value) => value.toLowerCase() === "production", {
+              required: true,
+              passDetail: "APP_ENV=production",
+              failDetail: "APP_ENV must be set to production",
+              showValue: true,
+            }),
+            envPolicyCheck(
+              "App secret key strength",
+              "APP_SECRET_KEY",
+              (value) => value !== "replace-me" && value.length >= 32,
+              {
+                required: true,
+                passDetail: "APP_SECRET_KEY configured with strong length",
+                failDetail: "APP_SECRET_KEY must be non-default and at least 32 characters",
+              },
+            ),
+            envPolicyCheck("Developer auth disabled", "DEV_AUTH_ENABLED", (value) => value.toLowerCase() === "false", {
+              required: true,
+              passDetail: "DEV_AUTH_ENABLED=false",
+              failDetail: "DEV_AUTH_ENABLED must be false in production",
+              showValue: true,
+            }),
+            envPolicyCheck("Inline sync disabled", "SYNC_RUN_INLINE", (value) => value.toLowerCase() === "false", {
+              required: true,
+              passDetail: "SYNC_RUN_INLINE=false",
+              failDetail: "SYNC_RUN_INLINE must be false for production workers",
+              showValue: true,
+            }),
+            envPolicyCheck(
+              "Schema auto-create disabled",
+              "APP_AUTO_CREATE_SCHEMA",
+              (value) => value.toLowerCase() === "false",
+              {
+                required: true,
+                passDetail: "APP_AUTO_CREATE_SCHEMA=false",
+                failDetail: "APP_AUTO_CREATE_SCHEMA must be false in production",
+                showValue: true,
+              },
+            ),
+            envPolicyCheck("Storage provider", "STORAGE_PROVIDER", (value) => value.toLowerCase() === "s3", {
+              required: true,
+              passDetail: "STORAGE_PROVIDER=s3",
+              failDetail: "STORAGE_PROVIDER must be s3 for production",
+              showValue: true,
+            }),
+            envPolicyCheck("S3 bucket is not development default", "S3_BUCKET", (value) => value !== "receipt-tracker-dev", {
+              required: true,
+              passDetail: "S3 bucket configured for non-dev environment",
+              failDetail: "S3_BUCKET is still the development default",
+            }),
+            envPolicyCheck(
+              "Postgres DSN is not local",
+              "POSTGRES_DSN",
+              (value) => !/(localhost|127\.0\.0\.1)/i.test(value),
+              {
+                required: true,
+                passDetail: "POSTGRES_DSN points to non-local database",
+                failDetail: "POSTGRES_DSN appears to use localhost",
+              },
+            ),
+            envPolicyCheck("Redis URL is not local", "REDIS_URL", (value) => !/(localhost|127\.0\.0\.1)/i.test(value), {
+              required: true,
+              passDetail: "REDIS_URL points to non-local cache",
+              failDetail: "REDIS_URL appears to use localhost",
+            }),
+            envPolicyCheck(
+              "QuickBooks base URL is production",
+              "QBO_BASE_URL",
+              (value) => !/sandbox-quickbooks/i.test(value),
+              {
+                required: true,
+                passDetail: "QBO_BASE_URL points to production endpoint",
+                failDetail: "QBO_BASE_URL still points to sandbox endpoint",
+                showValue: true,
+              },
+            ),
+            envPolicyCheck(
+              "CORS origins are non-local",
+              "BACKEND_CORS_ORIGINS",
+              (value) => !/(localhost|127\.0\.0\.1)/i.test(value),
+              {
+                required: true,
+                passDetail: "CORS origins are production-safe",
+                failDetail: "BACKEND_CORS_ORIGINS still includes localhost origins",
+                showValue: true,
+              },
+            ),
+          ],
+        },
+      ]
+    : []),
   {
     category: "Product Contracts",
     checks: [
       fileCheck("Commercial MVP snapshot", "docs/COMMERCIAL_MVP.md"),
       fileCheck("8/10 readiness plan", "docs/PRODUCT_8_OUT_OF_10_PLAN.md"),
       fileCheck("10/10 readiness plan", "docs/PRODUCT_10_OUT_OF_10_PLAN.md"),
+      fileCheck("Production secrets checklist", "docs/PRODUCTION_SECRETS_CHECKLIST.md"),
       fileCheck("Security audit notes", "docs/SECURITY_AUDIT_NOTES.md"),
       fileCheck("OpenAPI contract", "docs/openapi.yaml"),
       fileCheck("Mobile release checklist", "docs/MOBILE_RELEASE_CHECKLIST.md"),
@@ -123,6 +285,7 @@ const checks = [
       fileCheck("Provider benchmark script", "scripts/provider-sandbox-benchmark.mjs"),
       fileCheck("CI quality-gates workflow", ".github/workflows/quality-gates.yml"),
       fileCheck("Provider benchmark workflow", ".github/workflows/provider-sandbox-benchmark.yml"),
+      fileCheck("Production secrets workflow", ".github/workflows/production-secrets-verify.yml"),
     ],
   },
   {
@@ -166,6 +329,7 @@ if (args.has("--json")) {
   }
   process.stdout.write("Run with --json for machine-readable output. Run with --strict to fail on blockers.\n");
   process.stdout.write("Use --ci to downgrade provider credential checks to warnings for automation runs.\n");
+  process.stdout.write("Use --production (or --prod) to enforce go-live security and config policies.\n");
 }
 
 if (args.has("--strict") && blockerCount > 0) {

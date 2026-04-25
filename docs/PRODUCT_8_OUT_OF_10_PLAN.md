@@ -90,6 +90,7 @@ Goal: the team can see where users get stuck and help them quickly.
 - Add support ticket capture with receipt ID, sync job ID, provider target, and safe error context.
 - Create onboarding emails, support macros, privacy disclosures, and app-store launch assets.
 - Current progress: a device QA matrix and provider sandbox runbook now define measurable exit criteria for mobile and integration reliability before public launch.
+- Current progress: production secrets and policy verification now run through `scripts/launch-readiness-check.mjs --production --strict` and `.github/workflows/production-secrets-verify.yml`.
 
 Exit criteria: beta feedback can be connected to product events, logs, and specific recovery instructions.
 
